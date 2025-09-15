@@ -775,11 +775,11 @@ sub parseClass {
             if ( $d->{$f} ) {
 				if($d->{$f} eq "name")
 				{
-					$html .= $className;
+					$html .= escapeHTML($className);
 				}
 				else
 				{
-					$html .= $d->{$f};
+					$html .= escapeHTML($d->{$f});
 				}
                 
             }
@@ -916,20 +916,20 @@ sub parseTT {
             if ( $t->{$f} ) {
                 if ( any { /^$f$/xsm } @ofields ) {
                     if ( $t->{$f}[0]{longname} ) {
-                        $htmlRow .= $t->{$f}[0]{longname};
+                        $htmlRow .= escapeHTML($t->{$f}[0]{longname});
                         $rv   .= $f.":longname=\"".$t->{$f}[0]{longname}."\"";
                     }
                     $htmlRow .= "</td><td>";
                     $rv   .= $SPACE;
                     if ( $t->{$f}[0]{name} ) {
-                        $html .= $t->{$f}[0]{name};
+                        $html .= escapeHTML($t->{$f}[0]{name});
                         $rv   .= $f.":name=\"".$t->{$f}[0]{name}."\"";
                     }
 
                 }
 				## if we have an exception filter (ie 1.HJ) then we also don't want this value in the reading
                 elsif ( !($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/ )) {
-                    $htmlRow .= $t->{$f};
+                    $htmlRow .= escapeHTML($t->{$f});
                     $rv   .= $f."=\"".$t->{$f}."\"";
                 }
                 $htmlRow .= "</td>";
@@ -977,7 +977,7 @@ sub simpleTable {
     my $name = shift;
     my $pattern = shift;
     my $cnt = ReadingsNum($name, "exceptionCount",0);
-    my $html = "<html><body><b>".AttrVal($name,"alias",$name)."</b><table>";
+    my $html = "<html><body><b>".escapeHTML(AttrVal($name,"alias",$name))."</b><table>";
 
     my @fields;
     if ($pattern) {
@@ -1028,13 +1028,24 @@ sub simpleTable {
                 $formatted = $val;
             }
 			if ($formatted) {
-				$html .= "<td>$formatted</td>";
+				$html .= "<td>".escapeHTML($formatted)."</td>";
 			}
         }
         $html .= "</tr>";
     }
     $html .= "</table></body></html>";
 
+}
+
+sub escapeHTML {
+    my $text = shift;
+    return $text unless defined $text;
+    $text =~ s/&/&amp;/g;
+    $text =~ s/</&lt;/g;
+    $text =~ s/>/&gt;/g;
+    $text =~ s/"/&quot;/g;
+    $text =~ s/'/&#39;/g;
+    return $text;
 }
 
 sub uniq {
