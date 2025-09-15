@@ -414,14 +414,26 @@ sub Attr {
             }
             return qq (Attribute disable for $name has to be 0 or 1);
         }
+        # Validate schoolYearStart: format and logical consistency
         if ( $attr eq 'schoolYearStart' ) {
             if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
                 return qq (Attribute schoolYearStart for $name has to be in format YYYY-MM-DD);
             }
+            # Check logical consistency with schoolYearEnd if it exists
+            my $endDate = AttrVal( $name, "schoolYearEnd", "" );
+            if ( $endDate ne "" && $aVal ge $endDate ) {
+                return qq (Attribute schoolYearStart for $name must be before schoolYearEnd ($endDate));
+            }
         }
+        # Validate schoolYearEnd: format and logical consistency
         if ( $attr eq 'schoolYearEnd' ) {
             if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
                 return qq (Attribute schoolYearEnd for $name has to be in format YYYY-MM-DD);
+            }
+            # Check logical consistency with schoolYearStart if it exists
+            my $startDate = AttrVal( $name, "schoolYearStart", "" );
+            if ( $startDate ne "" && $aVal le $startDate ) {
+                return qq (Attribute schoolYearEnd for $name must be after schoolYearStart ($startDate));
             }
         }
     }
@@ -662,9 +674,9 @@ sub getTT {
     ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
     my $enddate = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
 
-    # Limit to school year boundaries if set
-    my $schoolYearStart = ReadingsVal($name, 'schoolYearStart', '');
-    my $schoolYearEnd   = ReadingsVal($name, 'schoolYearEnd', '');
+    # Limit to school year boundaries if set (check both attributes and readings)
+    my $schoolYearStart = AttrVal($name, 'schoolYearStart', '') || ReadingsVal($name, 'schoolYearStart', '');
+    my $schoolYearEnd   = AttrVal($name, 'schoolYearEnd', '') || ReadingsVal($name, 'schoolYearEnd', '');
     if ($schoolYearStart ne '' && $startdate lt $schoolYearStart) {
         $startdate = $schoolYearStart;
     }
