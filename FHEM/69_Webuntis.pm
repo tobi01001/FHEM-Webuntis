@@ -213,6 +213,8 @@ sub Undefine {
     my $hash = shift;
     RemoveInternalTimer($hash);
     DevIo_CloseDev($hash);
+    # Clear any running timer operations
+    delete $hash->{helper}{timerRunning};
     return;
 }
 ###################################
@@ -258,7 +260,7 @@ sub Get {
          return qq(set password first);
     }
 
-    delete $hash->{helper}{cmdQueue};
+    clearTimerOperation($hash);
 
     if ( $cmd eq 'timetable' ) {
         return getTimeTable($hash);
@@ -320,7 +322,7 @@ sub parseSchoolYear {
     if ($err) {
         Log3 $name, LOG_ERROR, "[$name] $err" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
     $data = latin1ToUtf8($data);
@@ -329,13 +331,13 @@ sub parseSchoolYear {
     if (!$json) {
         Log3 $name, LOG_ERROR, "[$name] No JSON received for SchoolYear" ;
         readingsSingleUpdate( $hash, "state", "Error: No JSON for SchoolYear", 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
     if ( $json->{error} ) {
         Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
 
@@ -395,6 +397,8 @@ sub Attr {
                 return qq (Interval for $name has to be > 5 minutes (300 seconds) or 0 to disable);
             }
             RemoveInternalTimer($hash);
+            # Clear any running timer operations when interval is disabled
+            delete $hash->{helper}{timerRunning};
             return;
         }
         if ( $attr eq 'disable' ) {
@@ -403,6 +407,8 @@ sub Attr {
                 DevIo_CloseDev($hash);
                 readingsSingleUpdate( $hash, "state", "inactive", 1 );
                 $hash->{helper}{DISABLED} = 1;
+                # Clear any running timer operations when disabled
+                delete $hash->{helper}{timerRunning};
                 return;
             }
             if ( $aVal == 0 ) {
@@ -434,6 +440,8 @@ sub Attr {
         if ( $attr eq "disable" ) {
             readingsSingleUpdate( $hash, "state", "initialized", 1 );
             $hash->{helper}{DISABLED} = 0;
+            # Clear any previous timer state when re-enabling
+            delete $hash->{helper}{timerRunning};
             my $next = int( gettimeofday() ) + 1;
             InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
             return;
@@ -446,9 +454,23 @@ sub wuTimer {
     my $hash = shift;
 
     my $name = $hash->{NAME};
+    
+    # Check if another timer operation is already in progress
+    if ( $hash->{helper}{timerRunning} ) {
+        Log3 $name, LOG_WARNING, qq([$name]: Timer already running, skipping this execution);
+        my $next = int( gettimeofday() ) + AttrNum( $name, 'interval', 3600 );
+        InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
+        return;
+    }
+    
+    # Set flag to indicate timer operation is in progress
+    $hash->{helper}{timerRunning} = 1;
+    
     RemoveInternalTimer($hash);
     getTimeTable($hash);
     Log3 $name, LOG_RECEIVE, qq([$name]: Starting Timer);
+    
+    # Schedule next timer - will be rescheduled when current operation completes
     my $next = int( gettimeofday() ) + AttrNum( $name, 'interval', 3600 );
     InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
     return;
@@ -557,12 +579,12 @@ sub parseLogin {
     if (!$json) {
         Log3 $name, LOG_ERROR, "[$name] No JSON after Login" ;
         readingsSingleUpdate( $hash, "state", "Error: No JSON after Login", 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     } elsif ( $json->{error} ) {
         Log3( $name, LOG_ERROR, "[$name] $json->{error}{message}" );
         readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     } else {
 		
@@ -737,7 +759,7 @@ sub parseClass {
     if ($err) {
         Log3 $name, LOG_ERROR, "[$name] $err" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
     $data = latin1ToUtf8($data);
@@ -746,13 +768,13 @@ sub parseClass {
     if (!$json) {
         Log3 $name, LOG_ERROR, "[$name] No JSON received for Class" ;
         readingsSingleUpdate( $hash, "state", "Error: No JSON for Class", 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
     if ( $json->{error} ) {
         Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
 
@@ -815,7 +837,7 @@ sub parseTT {
     if ($err) {
         Log3 $name, LOG_ERROR, "[$name] $err" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
     $data = latin1ToUtf8($data);
@@ -824,13 +846,13 @@ sub parseTT {
     if (!$json) {
         Log3 $name, LOG_ERROR, "[$name] No JSON received for Timetable" ;
         readingsSingleUpdate( $hash, "state", "Error: No JSON for TT", 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
     if ( $json->{error} ) {
         Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        clearTimerOperation($hash);
         return;
     }
 
@@ -970,6 +992,10 @@ sub parseTT {
 	
 	### Export timetable into iCal - file ### Sailor ###
 	exportTT2iCal($hash);
+	
+	# Clear timer running flag to allow next timer execution
+	delete $hash->{helper}{timerRunning};
+	
     return;
 }
 
@@ -1087,6 +1113,13 @@ sub processCmdQueue {
     my $gv = $cv->GV;
     Log3 $name, LOG_RECEIVE, "[$name] Processing Queue: " . $gv->NAME;
     $cmd->($hash);
+    return;
+}
+
+sub clearTimerOperation {
+    my $hash = shift;
+    delete $hash->{helper}{cmdQueue};
+    delete $hash->{helper}{timerRunning};
     return;
 }
 
