@@ -1,124 +1,72 @@
 # FHEM Webuntis Module
 
-FHEM-Webuntis is a Perl module for the FHEM home automation system that retrieves timetable information from Webuntis school cloud services. This is a single-file Perl module that integrates with the FHEM framework.
 
-Always reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.
+# FHEM-Webuntis Copilot Instructions
 
-## Working Effectively
+FHEM-Webuntis is a single-file Perl module for the FHEM home automation system, integrating with Webuntis school cloud services. All logic is in `FHEM/69_Webuntis.pm` and requires the FHEM framework and specific FHEM modules.
 
-The repository contains a single FHEM module (`69_Webuntis.pm`) and does not have a traditional build system. However, you can validate and work with the code using the following commands:
+## Architecture & Structure
+- **Single main module:** All code in `FHEM/69_Webuntis.pm`.
+- **FHEM integration:** Relies on FHEM-specific modules (`HttpUtils`, `GPUtils`, etc.) not available in standard Perl environments.
+- **No build system or unit tests:** Validation is manual and via Perl tools.
 
-### Environment Setup and Dependencies
-- Install required Perl modules: `sudo apt-get install -y libdatetime-perl libdatetime-format-strptime-perl libdigest-sha-perl` -- takes 5-10 seconds. NEVER CANCEL.
-- Install code quality tools: `sudo apt-get install -y perltidy libperl-critic-perl` -- takes 30-60 seconds. NEVER CANCEL.
-- Basic Perl is available at `/usr/bin/perl` (version 5.38.2)
+## Critical Developer Workflows
+- **Install dependencies:**
+  ```bash
+  sudo apt-get install -y libdatetime-perl libdatetime-format-strptime-perl libdigest-sha-perl
+  sudo apt-get install -y perltidy libperl-critic-perl
+  ```
+- **Syntax validation:**
+  ```bash
+  perl -wc -I. -e 'BEGIN { @deps = qw(HttpUtils FHEM::Meta GPUtils DevIo FHEM::Core::Authentication::Passwords); for (@deps) { eval "package $_; sub new {}; sub import {}; 1;" } }; do "FHEM/69_Webuntis.pm"'
+  ```
+- **Formatting:**
+  ```bash
+  perltidy --standard-output FHEM/69_Webuntis.pm > /dev/null
+  ```
+- **Static analysis:**
+  ```bash
+  perlcritic --severity 5 FHEM/69_Webuntis.pm
+  ```
+**Always run all validation steps before committing. Never cancel these commands—they are fast.**
 
-### Code Validation (CRITICAL - Always run before committing)
-- **Syntax validation**: `perl -wc -I. -e 'BEGIN { @deps = qw(HttpUtils FHEM::Meta GPUtils DevIo FHEM::Core::Authentication::Passwords); for (@deps) { eval "package $_; sub new {}; sub import {}; 1;" } }; do "FHEM/69_Webuntis.pm"'` -- takes <1 second
-- **Code formatting check**: `perltidy --standard-output FHEM/69_Webuntis.pm > /dev/null` -- takes 1 second
-- **Static analysis**: `perlcritic --severity 5 FHEM/69_Webuntis.pm` -- takes 1 second
+## Project-Specific Patterns
+- **Retry logic:** Network errors are retried with exponential backoff. Configurable via `maxRetries` and `retryDelay` attributes.
+- **Error handling:** Transient errors (timeouts, server errors, malformed JSON) are retried; permanent errors (auth, config) are not.
+- **Manual review required:** Especially for changes to HTTP requests, JSON parsing, and date/time logic.
 
-### Testing and Validation Scenarios
-Since this module requires the FHEM framework to function properly, full functional testing is not possible in a standard environment. However, you MUST validate the following:
+## Key Functions & Areas
+- `Initialize`, `Define`, `Undefine`, `Set`, `Get`: FHEM lifecycle and command interface.
+- `login`, `getTimeTable`, `parseTT`: Webuntis API and data handling.
+- **Critical code regions:**
+  - HTTP requests: lines ~540, 632, 728
+  - JSON parsing: `parseLogin`, `parseClass`, `parseTT`
+  - Date/time: lines ~640-680
+  - iCal export: `exportTT2iCal`
 
-- **ALWAYS run syntax validation** after any code changes
-- **ALWAYS run code formatting checks** to ensure style consistency
-- **ALWAYS run static analysis** to catch potential issues
-- **Manual code review** of any changes to HTTP requests, JSON parsing, or date/time handling
+## Integration Points
+- **External dependencies:**
+  - FHEM modules (not installable via CPAN)
+  - Standard Perl modules: `DateTime`, `Digest::SHA`, `JSON`, etc.
+- **Outputs:**
+  - iCal files (path via `iCalPath` attribute)
+  - Log entries (FHEM's `Log3`)
+  - Device readings
 
-## Repository Structure
-```
-FHEM-Webuntis/
-├── .git/                    # Git repository data
-├── .gitignore              # Git ignore patterns
-├── FHEM/                   # FHEM module directory
-│   └── 69_Webuntis.pm     # Main Perl module (single file)
-├── LICENSE                 # MIT license
-└── README.md              # Basic project description
-```
-
-## Cannot Do / Limitations
-- **Cannot run the module directly**: Requires full FHEM installation with dependencies like HttpUtils, DevIo, FHEM::Meta
-- **Cannot perform functional testing**: Module needs FHEM framework and Webuntis server access
-- **Cannot install FHEM easily**: FHEM is not available via standard package managers
-- **No unit tests exist**: Repository contains no test files
-
-## Common Development Tasks
-
-### Syntax Checking (ESSENTIAL)
-Always run before committing changes:
-```bash
-perl -wc -I. -e 'BEGIN { 
-  @deps = qw(HttpUtils FHEM::Meta GPUtils DevIo FHEM::Core::Authentication::Passwords);
-  for (@deps) { eval "package $_; sub new {}; sub import {}; 1;" }
-}; 
-do "FHEM/69_Webuntis.pm"'
-```
-
-### Code Quality Checks
-Run both formatting and analysis:
-```bash
-perltidy --standard-output FHEM/69_Webuntis.pm > /dev/null
-perlcritic --severity 5 FHEM/69_Webuntis.pm
-```
-
-### File Structure Validation
-```bash
-ls -la FHEM/
-file FHEM/69_Webuntis.pm  # Should show: Perl5 module source, ASCII text
-```
-
-## Module-Specific Information
-
-### Key Functions
-- `Initialize()`: Module initialization for FHEM
-- `Define()`, `Undefine()`: Device lifecycle management  
-- `Set()`, `Get()`: FHEM command interface
-- `login()`: Webuntis API authentication
-- `getTimeTable()`: Retrieve timetable data
-- `parseTT()`: Parse and process timetable responses
-
-### Dependencies (Not Available in Standard Environment)
-- `HttpUtils`: FHEM HTTP utilities
-- `FHEM::Meta`: FHEM metadata handling
-- `GPUtils`: FHEM general purpose utilities
-- `DevIo`: FHEM device I/O
-- `FHEM::Core::Authentication::Passwords`: Password management
-
-### External Dependencies (Available)
-- `DateTime`: Date/time manipulation
-- `Digest::SHA`: Cryptographic hashing
-- `JSON` (various implementations): JSON encoding/decoding
-- Standard Perl modules: `Data::Dumper`, `List::Util`, `POSIX`, etc.
-
-## Important Code Areas
-
-When making changes, pay special attention to:
-- **HTTP requests** (lines around 540, 632, 728): Authentication and API calls
-- **JSON parsing** (parseLogin, parseClass, parseTT functions): Data handling
-- **Date/time calculations** (lines 640-680): Timetable date ranges
-- **iCal export** (exportTT2iCal function): File output functionality
+## Limitations
+- Cannot run or test module outside FHEM.
+- No automated/unit tests.
+- FHEM must be installed and configured separately.
 
 ## Validation Checklist
-Before committing any changes:
-- [ ] Run syntax validation - MUST pass
-- [ ] Run perltidy formatting check - MUST pass
-- [ ] Run perlcritic analysis - Review warnings
+- [ ] Syntax validation
+- [ ] Code formatting (perltidy)
+- [ ] Static analysis (perlcritic)
 - [ ] Manual review of changed functions
-- [ ] Test any new date/time logic with edge cases
-- [ ] Verify JSON parsing handles malformed data
-- [ ] Check that HTTP error handling is robust
+- [ ] Test new date/time logic with edge cases
+- [ ] Verify JSON parsing for malformed data
+- [ ] Check HTTP error handling
 
-## Common File Outputs
-- iCal files: Written to path specified in `iCalPath` attribute
-- Log entries: Via FHEM's Log3 function (levels 0-5)
-- Readings: FHEM device state information
+---
 
-## Time Expectations
-- Dependency installation: 30-60 seconds total
-- Syntax validation: <1 second
-- Code formatting check: 1 second  
-- Static analysis: 1 second
-- All validation steps combined: <5 seconds
-
-NEVER CANCEL any validation commands - they complete quickly.
+For questions or unclear areas, review the README or ask for clarification. Update this file if new patterns or workflows emerge.

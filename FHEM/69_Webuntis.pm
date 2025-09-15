@@ -34,6 +34,8 @@ package main;
 use strict;
 use warnings;
 
+use constant WEBUNTIS_VERSION => "0.3.00";
+
 package FHEM::Webuntis;
 
 use List::Util qw(any first);
@@ -663,7 +665,7 @@ sub getTimeTable {
 sub login {
     my $hash = shift;
     my $name = $hash->{NAME};
-
+    Log3 $name, LOG_SEND, "[$name] Starting login";
     my $param->{header} = {
         "Accept"          => "*/*",
         "Content-Type"    => "application/json",
@@ -680,12 +682,20 @@ sub login {
             "client"   => "FHEM"
         }
     );
+
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
     $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseLogin;
     $param->{hash}     = $hash;
-
+    # Log only non-sensitive info at normal level
+    Log3($name, LOG_SEND, "login sends to " . $param->{url} . " for user " . AttrVal($name, "user", $EMPTY));
+    # Log full data at debug level with password redacted
+    my $debug_body = { %body };
+    $debug_body->{params}{password} = "***REDACTED***" if exists $debug_body->{params}{password};
+    Log3($name, LOG_DEBUG, "login params: ".Dumper($debug_body));
+    Log3($name,LOG_DEBUG,"login params: ".Dumper(\%body));
+    Log3($name,LOG_DEBUG,"login header: ".Dumper($param));
     my ( $err, $data ) = HttpUtils_NonblockingGet($param);
 
 }
