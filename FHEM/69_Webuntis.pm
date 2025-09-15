@@ -53,6 +53,18 @@ use DateTime; ## include iCal changes
 use DateTime::Format::Strptime;
 use Time::Local;
 
+# DateTime formatter for YYYYMMDD format used by Webuntis API
+my $date_formatter = DateTime::Format::Strptime->new(
+    pattern => '%Y%m%d',
+    on_error => 'croak',
+);
+
+# DateTime formatter for HHMM time format used by Webuntis API  
+my $time_formatter = DateTime::Format::Strptime->new(
+    pattern => '%H%M',
+    on_error => 'croak',
+);
+
 use Cwd;
 use Encode;
 
@@ -80,6 +92,58 @@ if ( !$got_module ) {
     $missingModul .= 'a JSON module (e.g. JSON::XS) ';
 }
 
+# Helper functions for date handling with DateTime
+sub format_date_for_api {
+    my $datetime = shift;
+    return $date_formatter->format_datetime($datetime);
+}
+
+sub parse_date_from_api {
+    my $date_string = shift;
+    return unless defined $date_string && length($date_string) >= 8;
+    
+    my $dt;
+    eval {
+        $dt = $date_formatter->parse_datetime($date_string);
+    };
+    if ($@) {
+        # Fallback for malformed dates
+        return undef;
+    }
+    return $dt;
+}
+
+sub get_today_as_string {
+    my $today = DateTime->now;
+    return format_date_for_api($today);
+}
+
+sub format_time_for_display {
+    my $time_string = shift;
+    return '' unless defined $time_string;
+    
+    if (length($time_string) >= 4) {
+        my $hour = substr($time_string, 0, 2);
+        my $minute = substr($time_string, 2, 2);
+        return "$hour:$minute";
+    } elsif (length($time_string) == 3) {
+        my $hour = "0" . substr($time_string, 0, 1);
+        my $minute = substr($time_string, 1, 2);
+        return "$hour:$minute";
+    }
+    return '';
+}
+
+sub format_date_for_display {
+    my $date_string = shift;
+    return '' unless defined $date_string;
+    
+    my $dt = parse_date_from_api($date_string);
+    return '' unless $dt;
+    
+    return $dt->strftime("%d.%m.%Y");
+}
+
 # Readonly is recommended, but requires additional module
 use constant {
     WU_MINIMUM_INTERVAL => 300,
@@ -94,7 +158,7 @@ my $EMPTY = q{};
 my $SPACE = q{ };
 my $COMMA = q{,};
 
-my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "disable" );
+my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "disable" );
 
 
 ## Import der FHEM Funktionen
@@ -320,31 +384,27 @@ sub parseSchoolYear {
     my $name = $hash->{NAME};
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $err, "parseSchoolYear");
         return;
     }
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getSchoolYear received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON received for SchoolYear" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON for SchoolYear", 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, "No JSON received for SchoolYear", "parseSchoolYear");
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear");
         return;
     }
 
+    # Success - reset retry count
+    delete $hash->{helper}{retryCount};
+
     my @years = @{ $json->{result} };
     # Find current school year (where today is between startDate and endDate)
-    my ($s, $mi, $h, $d, $m, $y) = localtime();
-    my $today = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    my $today = get_today_as_string();
     my ($currentStart, $currentEnd, $currentName);
     my $currentId;
     foreach my $year (@years) {
@@ -420,14 +480,36 @@ sub Attr {
             }
             return qq (Attribute disable for $name has to be 0 or 1);
         }
+        # Validate schoolYearStart: format and logical consistency
         if ( $attr eq 'schoolYearStart' ) {
             if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
                 return qq (Attribute schoolYearStart for $name has to be in format YYYY-MM-DD);
             }
+            # Check logical consistency with schoolYearEnd if it exists
+            my $endDate = AttrVal( $name, "schoolYearEnd", "" );
+            if ( $endDate ne "" && $aVal ge $endDate ) {
+                return qq (Attribute schoolYearStart for $name must be before schoolYearEnd ($endDate));
+            }
         }
+        # Validate schoolYearEnd: format and logical consistency
         if ( $attr eq 'schoolYearEnd' ) {
             if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
                 return qq (Attribute schoolYearEnd for $name has to be in format YYYY-MM-DD);
+            }
+            # Check logical consistency with schoolYearStart if it exists
+            my $startDate = AttrVal( $name, "schoolYearStart", "" );
+            if ( $startDate ne "" && $aVal le $startDate ) {
+                return qq (Attribute schoolYearEnd for $name must be after schoolYearStart ($startDate));
+            }
+        }
+        if ( $attr eq 'maxRetries' ) {
+            if ( $aVal !~ /^\d+$/ || $aVal < 0 || $aVal > 10 ) {
+                return qq (Attribute maxRetries for $name has to be a number between 0 and 10);
+            }
+        }
+        if ( $attr eq 'retryDelay' ) {
+            if ( $aVal !~ /^\d+$/ || $aVal < 5 || $aVal > 300 ) {
+                return qq (Attribute retryDelay for $name has to be a number between 5 and 300 seconds);
             }
         }
     }
@@ -575,19 +657,22 @@ sub parseLogin {
     my $header  = $param->{httpheader};
     my $cookies = getCookies( $hash, $header );
 
+    if ($err) {
+        return if handleRetryOrFail($hash, $err, "parseLogin");
+        return;
+    }
+
     my $json = safe_decode_json( $hash, $data );
     Log3( $name, LOG_RECEIVE, "login received $data");
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON after Login" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON after Login", 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, "No JSON after Login", "parseLogin");
         return;
     } elsif ( $json->{error} ) {
-        Log3( $name, LOG_ERROR, "[$name] $json->{error}{message}" );
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin");
         return;
     } else {
+        # Success - reset retry count
+        delete $hash->{helper}{retryCount};
 		
 		my $pType = $json->{result}->{personType} // "None";
 		if ($pType eq "12")
@@ -678,16 +763,17 @@ sub getTT {
             $startDayDelta = $wday - $weekdays{$startDay} if(($wday - $weekdays{$startDay}) > 0);
         }
     }
-    my $target_time = timelocal($s, $mi, $h, $d-$startDayDelta, $m, $y);
-    ($s, $mi, $h, $d, $m, $y) = localtime($target_time);
-    my $startdate = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    
+    # Use DateTime for date calculations
+    my $start_dt = DateTime->now->subtract(days => $startDayDelta);
+    my $startdate = format_date_for_api($start_dt);
 
-    ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
-    my $enddate = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    my $end_dt = DateTime->now->add(days => AttrNum( $name, 'DaysTimetable', 7 ));
+    my $enddate = format_date_for_api($end_dt);
 
-    # Limit to school year boundaries if set
-    my $schoolYearStart = ReadingsVal($name, 'schoolYearStart', '');
-    my $schoolYearEnd   = ReadingsVal($name, 'schoolYearEnd', '');
+    # Limit to school year boundaries if set (check both attributes and readings)
+    my $schoolYearStart = AttrVal($name, 'schoolYearStart', '') || ReadingsVal($name, 'schoolYearStart', '');
+    my $schoolYearEnd   = AttrVal($name, 'schoolYearEnd', '') || ReadingsVal($name, 'schoolYearEnd', '');
     if ($schoolYearStart ne '' && $startdate lt $schoolYearStart) {
         $startdate = $schoolYearStart;
     }
@@ -758,26 +844,23 @@ sub parseClass {
     my $name = $hash->{NAME};
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $err, "parseClass");
         return;
     }
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getClass received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON received for Class" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON for Class", 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, "No JSON received for Class", "parseClass");
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass");
         return;
     }
+
+    # Success - reset retry count
+    delete $hash->{helper}{retryCount};
 
     my @dat    = @{ $json->{result} };
     my @fields = ( "id", "name", "longName" );
@@ -789,7 +872,7 @@ sub parseClass {
     foreach my $d (@dat) {
         $html .= "<tr>";
 		$className = $d->{name};
-		$className =~ s/ /_/g;
+		$className =~ s/[^a-zA-Z0-9_]/_/g;
 		push(@classNames, $className);
         $classMap{ $className } = $d->{id};
 		$classIdMap{ $d->{id} } = $className;
@@ -798,11 +881,11 @@ sub parseClass {
             if ( $d->{$f} ) {
 				if($d->{$f} eq "name")
 				{
-					$html .= $className;
+					$html .= escapeHTML($className);
 				}
 				else
 				{
-					$html .= $d->{$f};
+					$html .= escapeHTML($d->{$f});
 				}
                 
             }
@@ -836,26 +919,23 @@ sub parseTT {
     CommandDeleteReading( undef, "$name e_.*" );
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $err, "parseTT");
         return;
     }
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getTT received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON received for Timetable" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON for TT", 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, "No JSON received for Timetable", "parseTT");
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        clearTimerOperation($hash);
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT");
         return;
     }
+
+    # Success - reset retry count
+    delete $hash->{helper}{retryCount};
 
     #Log3 ($name, LOG_ERROR, Dumper(${$json->{result}}[0]));
     my @dat = @{ $json->{result} };
@@ -867,11 +947,9 @@ sub parseTT {
 
     $hash->{helper}{tt} = \@sorted;
 
-    my ( $s, $mi, $h, $d, $m, $y ) = localtime();
-    my $today = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
-#    ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + 24 * 60 * 60 ) );
-	( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
-    my $tomorrow = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    my $today = get_today_as_string();
+    my $tomorrow_dt = DateTime->now->add(days => AttrNum( $name, 'DaysTimetable', 7 ));
+    my $tomorrow = format_date_for_api($tomorrow_dt);
 
 
 
@@ -939,20 +1017,20 @@ sub parseTT {
             if ( $t->{$f} ) {
                 if ( any { /^$f$/xsm } @ofields ) {
                     if ( $t->{$f}[0]{longname} ) {
-                        $htmlRow .= $t->{$f}[0]{longname};
+                        $htmlRow .= escapeHTML($t->{$f}[0]{longname});
                         $rv   .= $f.":longname=\"".$t->{$f}[0]{longname}."\"";
                     }
                     $htmlRow .= "</td><td>";
                     $rv   .= $SPACE;
                     if ( $t->{$f}[0]{name} ) {
-                        $html .= $t->{$f}[0]{name};
+                        $html .= escapeHTML($t->{$f}[0]{name});
                         $rv   .= $f.":name=\"".$t->{$f}[0]{name}."\"";
                     }
 
                 }
 				## if we have an exception filter (ie 1.HJ) then we also don't want this value in the reading
                 elsif ( !($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/ )) {
-                    $htmlRow .= $t->{$f};
+                    $htmlRow .= escapeHTML($t->{$f});
                     $rv   .= $f."=\"".$t->{$f}."\"";
                 }
                 $htmlRow .= "</td>";
@@ -1004,7 +1082,7 @@ sub simpleTable {
     my $name = shift;
     my $pattern = shift;
     my $cnt = ReadingsNum($name, "exceptionCount",0);
-    my $html = "<html><body><b>".AttrVal($name,"alias",$name)."</b><table>";
+    my $html = "<html><body><b>".escapeHTML(AttrVal($name,"alias",$name))."</b><table>";
 
     my @fields;
     if ($pattern) {
@@ -1022,31 +1100,16 @@ sub simpleTable {
             my $formatted;
 			my $val = $h->{$f} // 'default';  # default to empty string if undef
             if ($f =~ /date/) {
-                if (length($val) >= 8) {
-					my $j = substr($val, 0, 4);
-					my $m = substr($val, 4, 2);
-					my $d = substr($val, 6, 2);
-					$formatted = "$d.$m.$j";
-				} else {
-					$formatted = '';  # or keep original $val, or log a warning
-					Log3 ($name, LOG_ERROR, "SimpleTable: Date string too short: $val");
-				}
+                $formatted = format_date_for_display($val);
+                if (!$formatted && $val ne 'default') {
+                    Log3 ($name, LOG_ERROR, "SimpleTable: Date string could not be parsed: $val");
+                }
             }
             elsif ($f =~ /Time/) {
-				if (length($val) >= 4) {
-					my $ho = substr($val, 0, 2);
-					my $m  = substr($val, 2, 2);
-					$formatted = "$ho:$m";
-				}
-				elsif (length($val) == 3) {
-					my $ho = "0" . substr($val, 0, 1);
-					my $m  = substr($val, 1, 2);
-					$formatted = "$ho:$m";
-				}
-				else {
-					$formatted = '';  # or keep $val
-					Log3 ($name, LOG_ERROR, "SimpleTable: Time string too short: $val");
-				}
+				$formatted = format_time_for_display($val);
+                if (!$formatted && $val ne 'default') {
+                    Log3 ($name, LOG_ERROR, "SimpleTable: Time string could not be parsed: $val");
+                }
 			}
             elsif ($f eq "code" and $val ne 'default') {
                         $formatted = $codeMap{$val};
@@ -1055,13 +1118,24 @@ sub simpleTable {
                 $formatted = $val;
             }
 			if ($formatted) {
-				$html .= "<td>$formatted</td>";
+				$html .= "<td>".escapeHTML($formatted)."</td>";
 			}
         }
         $html .= "</tr>";
     }
     $html .= "</table></body></html>";
 
+}
+
+sub escapeHTML {
+    my $text = shift;
+    return $text unless defined $text;
+    $text =~ s/&/&amp;/g;
+    $text =~ s/</&lt;/g;
+    $text =~ s/>/&gt;/g;
+    $text =~ s/"/&quot;/g;
+    $text =~ s/'/&#39;/g;
+    return $text;
 }
 
 sub uniq {
@@ -1121,6 +1195,76 @@ sub clearTimerOperation {
     my $hash = shift;
     delete $hash->{helper}{cmdQueue};
     delete $hash->{helper}{timerRunning};
+    return;
+}
+
+sub isTransientError {
+    my $error = shift;
+    
+    return 0 if !defined($error);
+    
+    # Network-related transient errors that should be retried
+    return 1 if $error =~ /timeout/i;
+    return 1 if $error =~ /connection.*(?:refused|reset|failed)/i;
+    return 1 if $error =~ /network.*(?:unreachable|error)/i;
+    return 1 if $error =~ /temporary.*failure/i;
+    return 1 if $error =~ /service.*unavailable/i;
+    return 1 if $error =~ /socket.*error/i;
+    return 1 if $error =~ /dns.*(?:error|failure)/i;
+    return 1 if $error =~ /502|503|504/; # HTTP server errors that are often transient
+    
+    # JSON parsing errors from incomplete/corrupted data could be transient
+    return 1 if $error =~ /malformed JSON/i;
+    return 1 if $error =~ /unexpected end of JSON/i;
+    
+    return 0; # Default to permanent error for safety
+}
+
+sub handleRetryOrFail {
+    my ($hash, $error, $context) = @_;
+    my $name = $hash->{NAME};
+    
+    # Get retry configuration from attributes (with defaults)
+    my $maxRetries = AttrNum($name, 'maxRetries', 3);
+    my $retryDelay = AttrNum($name, 'retryDelay', 30);
+    
+    # Initialize retry count if not present
+    if (!defined($hash->{helper}{retryCount})) {
+        $hash->{helper}{retryCount} = 0;
+    }
+    
+    # Check if error is transient and we haven't exceeded max retries
+    if (isTransientError($error) && $hash->{helper}{retryCount} < $maxRetries) {
+        $hash->{helper}{retryCount}++;
+        # Exponential backoff: 30s, 60s, 120s, 240s, etc.
+        my $delay = $retryDelay * (2 ** ($hash->{helper}{retryCount} - 1));
+        
+        Log3 $name, LOG_WARNING, "[$name] Transient error in $context (attempt $hash->{helper}{retryCount}/$maxRetries): $error - retrying in ${delay}s";
+        readingsSingleUpdate($hash, "state", "Retry $hash->{helper}{retryCount}/$maxRetries: $error", 1);
+        
+        # Schedule retry with exponential backoff
+        my $next = int(gettimeofday()) + $delay;
+        InternalTimer($next, 'FHEM::Webuntis::retryProcessing', $hash, 0);
+        
+        return 1; # Handled - don't delete queue, preserve for retry
+    } else {
+        # Permanent error or max retries exceeded - give up
+        my $retryInfo = $hash->{helper}{retryCount} > 0 ? " after $hash->{helper}{retryCount} retries" : "";
+        Log3 $name, LOG_ERROR, "[$name] Permanent error in $context$retryInfo: $error";
+        readingsSingleUpdate($hash, "state", "Error: $error$retryInfo", 1);
+        
+        # Reset retry count and delete queue - processing stops
+        delete $hash->{helper}{retryCount};
+        delete $hash->{helper}{cmdQueue};
+        
+        return 0; # Not handled - queue deleted, processing stops
+    }
+}
+
+sub retryProcessing {
+    my $hash = shift;
+    # Continue processing the queue from where we left off after retry delay
+    processCmdQueue($hash);
     return;
 }
 
@@ -1214,10 +1358,9 @@ sub exportTT2iCal {
 		my @jsonTimeTable = $hash->{helper}{tt};
 		my $user          = AttrVal($name, "user"    , "NA");
 
-		### Get current timestamp
-		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
-		$year = $year + 1900;
-		$mon++;
+		### Get current timestamp using DateTime
+		my $now = DateTime->now;
+		my $timestamp = $now->strftime('%Y%m%dT%H%M%S');
 
 		####START##### Transform json-Timetable in ical Timetable #####START####
 		$iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
@@ -1248,7 +1391,7 @@ sub exportTT2iCal {
 				$iCalFileContent .= "LOCATION:"                   . $TTLocation . "\n";
 				$iCalFileContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{startTime}) . "00\n";
 				$iCalFileContent .= "DTEND;TZID=Europe/Berlin:"   . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{endTime})   . "00\n";
-				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . sprintf('%04d', $year) . sprintf('%02d', $mon) . sprintf('%02d', $mday) . "T" . sprintf('%02d', $hour) . sprintf('%02d', $min) . sprintf('%02d', $sec)  ."\n";
+				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . $timestamp ."\n";
 				$iCalFileContent .= "SUMMARY:"                    . $CalSubject . "\n";
 				$iCalFileContent .= "DESCRIPTION:"                . $CalInfo . "\n";
 				$iCalFileContent .= "END:VEVENT\n\n";
@@ -1304,7 +1447,7 @@ sub exportTT2iCal {
 			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format       : WINDOWS";
 
 			### Find out whether it is an absolute path or an relative one (containing ":\")
-			if ($iCalPath != /^.:\//) {
+			if ($iCalPath !~ /^.:\\/) {
 				$iCalFileName = $cwd . $iCalPath;
 			}
 			else {
@@ -1330,7 +1473,21 @@ sub exportTT2iCal {
 
 		Log3 $name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to  : " . $iCalFileName;
 		
-		open(FH, '>', $iCalFileName);
+		# Check if directory exists and is writable
+		if (!-d $IcalFileDir) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory does not exist: " . $IcalFileDir;
+			return;
+		}
+		
+		if (!-w $IcalFileDir) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory is not writable: " . $IcalFileDir;
+			return;
+		}
+		
+		if (!open(FH, '>', $iCalFileName)) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot open file for writing: " . $iCalFileName . " - " . $!;
+			return;
+		}
 		print FH $iCalFileContent;
 		close(FH);
 	}
