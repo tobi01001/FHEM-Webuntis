@@ -1497,6 +1497,200 @@ sub Rename {
     return;
 }
 
+=head2 _generateICalContent
+
+Generate iCal content from timetable data
+
+    Parameters:
+        $hash - device hash reference
+        $timeTableArray - timetable data array reference
+    
+    Returns:
+        iCal content string
+
+=cut
+
+sub _generateICalContent {
+    my ($hash, $timeTableArray) = @_;
+    my $name = $hash->{NAME};
+    
+    my $content = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
+    
+    ### Get current timestamp for DTSTAMP
+    my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+    $year = $year + 1900;
+    $mon++;
+    
+    foreach my $TimeTableArray ( @$timeTableArray ) {
+        Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - TimeTableArray: " . Dumper($TimeTableArray);
+        
+        foreach my $TTHashcontent (@$TimeTableArray) {
+            Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - Processing TT item: #" . $TTHashcontent->{id};
+            $content .= _generateICalEvent($hash, $TTHashcontent, $year, $mon, $mday, $hour, $min, $sec);
+        }
+    }
+    
+    $content .= "END:VCALENDAR";
+    return $content;
+}
+
+=head2 _generateICalEvent
+
+Generate a single iCal event from timetable entry
+
+    Parameters:
+        $hash     - device hash reference
+        $entry    - single timetable entry
+        $year, $mon, $mday, $hour, $min, $sec - timestamp components
+    
+    Returns:
+        iCal event string
+
+=cut
+
+sub _generateICalEvent {
+    my ($hash, $entry, $year, $mon, $mday, $hour, $min, $sec) = @_;
+    my $name = $hash->{NAME};
+    
+    my $TTClass    = Encode::decode( 'iso-8859-1', $entry->{kl}[0]{longname}) || 'NN ';
+    my $TTSubject  = Encode::decode( 'iso-8859-1', $entry->{su}[0]{longname}) || 'NN ';
+    my $TTTeacher  = Encode::decode( 'iso-8859-1', $entry->{te}[0]{longname}) || 'NN ';
+    my $TTLocation = Encode::decode( 'iso-8859-1', $entry->{ro}[0]{longname}) || 'NN ';
+
+    my $CalSubject = $TTClass . " " . $TTSubject . " " . $TTTeacher;
+    my $CalInfo    = "Klasse: " . $TTClass . "\\n" . "Unterricht: " . $TTSubject . "\\n" . "Ort: " . $TTLocation . "\\n" . "Lehrkraft: " . $TTTeacher;
+
+    my $event = "";
+    $event .= "BEGIN:VEVENT\n";
+    $event .= "CLASS:PUBLIC\n";
+    $event .= "STATUS:CONFIRMED\n";
+    $event .= "TRANSP:TRANSPARENT\n";
+    $event .= "CATEGORIES:EDUCATION\n";
+    $event .= "URL:" . AttrVal($name, "server", "") . "\n";
+    $event .= "UID:" . $entry->{id} . "\n";
+    $event .= "LOCATION:" . $TTLocation . "\n";
+    $event .= "DTSTART;TZID=Europe/Berlin:" . $entry->{date} . "T" . sprintf('%04d',$entry->{startTime}) . "00\n";
+    $event .= "DTEND;TZID=Europe/Berlin:" . $entry->{date} . "T" . sprintf('%04d',$entry->{endTime}) . "00\n";
+    $event .= "DTSTAMP;TZID=Europe/Berlin:" . sprintf('%04d', $year) . sprintf('%02d', $mon) . sprintf('%02d', $mday) . "T" . sprintf('%02d', $hour) . sprintf('%02d', $min) . sprintf('%02d', $sec) ."\n";
+    $event .= "SUMMARY:" . $CalSubject . "\n";
+    $event .= "DESCRIPTION:" . $CalInfo . "\n";
+    $event .= "END:VEVENT\n\n";
+    
+    return $event;
+}
+
+=head2 _determineICalFilePath
+
+Determine the complete file path for iCal export
+
+    Parameters:
+        $name     - device name
+        $iCalPath - configured path
+        $user     - username for filename
+    
+    Returns:
+        complete file path string
+
+=cut
+
+sub _determineICalFilePath {
+    my ($name, $iCalPath, $user) = @_;
+    
+    my $cwd = getcwd();
+    my $iCalFileName;
+    
+    Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - working directory: " . $cwd;
+    
+    ### Handle UNIX file system format
+    if ($cwd =~ /\//) {
+        Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format: LINUX";
+        $iCalFileName = _buildUnixPath($cwd, $iCalPath, $user);
+    }
+    ### Handle Windows file system format  
+    elsif ($iCalPath =~ /\\/) {
+        Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format: WINDOWS";
+        $iCalFileName = _buildWindowsPath($cwd, $iCalPath, $user);
+    }
+    
+    return $iCalFileName;
+}
+
+=head2 _buildUnixPath
+
+Build complete Unix-style file path
+
+    Parameters:
+        $cwd      - current working directory
+        $iCalPath - configured path  
+        $user     - username
+    
+    Returns:
+        complete file path string
+
+=cut
+
+sub _buildUnixPath {
+    my ($cwd, $iCalPath, $user) = @_;
+    
+    my $iCalFileName;
+    
+    ### Determine if absolute or relative path
+    if ($iCalPath =~ /^\//) {
+        $iCalFileName = $iCalPath;
+    }
+    else {
+        $iCalFileName = $cwd . "/" . $iCalPath;
+    }
+    
+    ### Add filename if path ends with /
+    if ($iCalPath =~ /\/\z/) {
+        $iCalFileName .= "untis_TT_" . $user . ".ics";
+    }
+    else {
+        $iCalFileName .= "/" . "untis_TT_" . $user . ".ics";
+    }
+    
+    return $iCalFileName;
+}
+
+=head2 _buildWindowsPath
+
+Build complete Windows-style file path
+
+    Parameters:
+        $cwd      - current working directory
+        $iCalPath - configured path
+        $user     - username
+    
+    Returns:
+        complete file path string
+
+=cut
+
+sub _buildWindowsPath {
+    my ($cwd, $iCalPath, $user) = @_;
+    
+    my $iCalFileName;
+    
+    ### Determine if absolute or relative path
+    if ($iCalPath !~ /^.:\//) {
+        $iCalFileName = $cwd . $iCalPath;
+    }
+    else {
+        $iCalFileName = $iCalPath;
+    }
+    
+    ### Add filename if path ends with \
+    if ($iCalPath =~ /\\\z/) {
+        $iCalFileName .= "untis_TT_" . $user . ".ics";
+    }
+    else {
+        $iCalFileName .= "\\" . "untis_TT_" . $user . ".ics";
+    }
+    
+    return $iCalFileName;
+}
+
 =head2 exportTT2iCal
 
 Export timetable data to iCal format
@@ -1510,144 +1704,29 @@ Export timetable data to iCal format
 =cut
 
 sub exportTT2iCal {
-    my $hash          = shift;
-    my $name          = $hash->{NAME};
-    my $iCalPath      = AttrVal($name, "iCalPath", "");
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    my $iCalPath = AttrVal($name, "iCalPath", "");
 
-    ### Check ehether the Attribute iCalPath has been provided otherwise skip export
+    ### Check whether the Attribute iCalPath has been provided otherwise skip export
     if ($iCalPath ne "") {
-
-        my $iCalFileName;
-        my $iCalFileContent;
         my @jsonTimeTable = $hash->{helper}{tt};
-        my $user          = AttrVal($name, "user"    , "NA");
+        my $user = AttrVal($name, "user", "NA");
 
-        ### Get current timestamp
-        my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
-        $year = $year + 1900;
-        $mon++;
+        my $iCalFileContent = _generateICalContent($hash, \@jsonTimeTable);
+        my $iCalFileName = _determineICalFilePath($name, $iCalPath, $user);
 
-        ####START##### Transform json-Timetable in ical Timetable #####START####
-        $iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
-		foreach my $TimeTableArray ( @jsonTimeTable ) {
-
-			### Log Entry for debugging purposes
-			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - TimeTableArray           : " . Dumper($TimeTableArray);
-			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal====================================================";
-			
-			foreach my $TTHashcontent (@$TimeTableArray) {
-				Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - Progressing TT item      : #" . $TTHashcontent->{id};
-
-				my $TTClass    = Encode::decode( 'iso-8859-1', $TTHashcontent->{kl}[0]{longname}) || 'NN ';
-				my $TTSubject  = Encode::decode( 'iso-8859-1', $TTHashcontent->{su}[0]{longname}) || 'NN ';
-				my $TTTeacher  = Encode::decode( 'iso-8859-1', $TTHashcontent->{te}[0]{longname}) || 'NN ';
-				my $TTLocation = Encode::decode( 'iso-8859-1', $TTHashcontent->{ro}[0]{longname}) || 'NN ';
-	
-				my $CalSubject = $TTClass . " " . $TTSubject . " " . $TTTeacher;
-				my $CalInfo    = "Klasse: " . $TTClass . "\\n" . "Unterricht: " . $TTSubject . "\\n" . "Ort: " . $TTLocation . "\\n" . "Lehrkraft: " . $TTTeacher;
-
-				$iCalFileContent .= "BEGIN:VEVENT\n";
-				$iCalFileContent .= "CLASS:PUBLIC\n";
-				$iCalFileContent .= "STATUS:CONFIRMED\n";
-				$iCalFileContent .= "TRANSP:TRANSPARENT\n";
-				$iCalFileContent .= "CATEGORIES:EDUCATION\n";
-				$iCalFileContent .= "URL:"                        . AttrVal($name, "server", ""  ) . "\n";
-				$iCalFileContent .= "UID:"                        . $TTHashcontent->{id} . "\n";
-				$iCalFileContent .= "LOCATION:"                   . $TTLocation . "\n";
-				$iCalFileContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{startTime}) . "00\n";
-				$iCalFileContent .= "DTEND;TZID=Europe/Berlin:"   . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{endTime})   . "00\n";
-				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . sprintf('%04d', $year) . sprintf('%02d', $mon) . sprintf('%02d', $mday) . "T" . sprintf('%02d', $hour) . sprintf('%02d', $min) . sprintf('%02d', $sec)  ."\n";
-				$iCalFileContent .= "SUMMARY:"                    . $CalSubject . "\n";
-				$iCalFileContent .= "DESCRIPTION:"                . $CalInfo . "\n";
-				$iCalFileContent .= "END:VEVENT\n\n";
-				Log3 $name, 5, $name. " : Webuntis_exportTT2iCal_____________________________________________________";
-			}
-		}
-		$iCalFileContent .= "END:VCALENDAR";
-		#####END###### Transform json-Timetable in ical Timetable ######END#####
-
-
-		### Get current working directory
-		my $cwd = getcwd();
-		my $IcalFileDir;
-
-		### Log Entry for debugging purposes
-		Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - working directory        : " . $cwd;
-
-		### If the path is given as UNIX file system format
-		if ($cwd =~ /\//) {
-			### Log Entry for debugging purposes
-			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format     : LINUX";
-
-			### Find out whether it is an absolute path or an relative one (leading "/")
-			if ($iCalPath =~ /^\//) {
-			
-				$iCalFileName = $iCalPath;
-			}
-			else {
-				$iCalFileName = $cwd . "/" . $iCalPath;						
-			}
-
-			### Check whether the last "/" at the end of the path has been given otherwise add it an create complete path
-			if ($iCalPath =~ /\/\z/) {
-				### Save directory
-				$IcalFileDir = $iCalFileName;
-				
-				### Create complete datapath
-
-				$iCalFileName .=       "untis_TT_" . $user . ".ics";
-			}
-			else {
-				### Save directory
-				$IcalFileDir = $iCalFileName . "/";
-				
-				### Create complete datapath
-				$iCalFileName .= "/" . "untis_TT_" . $user . ".ics";
-			}
-		}
-
-		### If the path is given as Windows file system format
-		if ($iCalPath =~ /\\/) {
-			### Log Entry for debugging purposes
-			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format       : WINDOWS";
-
-			### Find out whether it is an absolute path or an relative one (containing ":\")
-			if ($iCalPath != /^.:\//) {
-				$iCalFileName = $cwd . $iCalPath;
-			}
-			else {
-				$iCalFileName = $iCalPath;						
-			}
-
-			### Check whether the last "/" at the end of the path has been given otherwise add it an create complete path
-			if ($iCalPath =~ /\\\z/) {
-				### Save directory
-				$IcalFileDir = $iCalFileName;
-				
-				### Create full datapath
-				$iCalFileName .=       "untis_TT_" . $user . ".ics";;
-			}
-			else {
-				### Save directory
-				$IcalFileDir = $iCalFileName . "\\";
-
-				### Create full datapath
-				$iCalFileName .= "\\" . "untis_TT_" . $user . ".ics";;
-			}
-		}
-
-		Log3 $name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to  : " . $iCalFileName;
-		
-		open(FH, '>', $iCalFileName);
-		print FH $iCalFileContent;
-		close(FH);
-	}
-	### Skipping export
-	else {
-		### Log Entry for debugging purposes
-		Log3 $name, 4, $name . " : Webuntis_exportTT2iCal - Attribute \"iCalPath\" mot provided - Skipping export.";
-	}
-	return;
+        Log3 $name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to: " . $iCalFileName;
+        
+        open(FH, '>', $iCalFileName);
+        print FH $iCalFileContent;
+        close(FH);
+    }
+    else {
+        ### Log Entry for debugging purposes
+        Log3 $name, 4, $name . " : Webuntis_exportTT2iCal - Attribute \"iCalPath\" not provided - Skipping export.";
+    }
+    return;
 }
 1;
 
