@@ -262,7 +262,6 @@ sub Define {
     # Initialize password validation status
     if (defined(ReadPassword($hash))) {
         $hash->{helper}{passwordValid} = 0;  # Unknown until first successful authentication
-        readingsSingleUpdate($hash, "passwordValid", "unknown", 1);
     }
 
 	getTimeTable($hash);
@@ -313,7 +312,6 @@ sub Set {
         my $err = StorePassword( $hash, $arg );
         # Reset password validation status when new password is set
         delete $hash->{helper}{passwordValid};
-        readingsSingleUpdate($hash, "passwordValid", "unknown", 1);
         delete $hash->{READINGS}{lastError}; # Clear any previous authentication errors
         
         if ( !IsDisabled($name) && defined( ReadPassword($hash) ) ) {
@@ -719,7 +717,6 @@ sub parseLogin {
         # Success - reset retry count and mark password as valid
         delete $hash->{helper}{retryCount};
         $hash->{helper}{passwordValid} = 1;
-        readingsSingleUpdate($hash, "passwordValid", "yes", 1);
         delete $hash->{READINGS}{lastError}; # Clear any previous error
 		
 		my $pType = $json->{result}->{personType} // "None";
@@ -1303,7 +1300,6 @@ sub handleAuthenticationError {
     Log3 $name, LOG_ERROR, "[$name] $message ($error)";
     readingsSingleUpdate($hash, "state", "Authentication Error - Update Password", 1);
     readingsSingleUpdate($hash, "lastError", $message, 1);
-    readingsSingleUpdate($hash, "passwordValid", "no", 1);
     
     return 0; # Not handled - processing stops
 }
