@@ -149,6 +149,18 @@ GP_Export(
 );
 
 
+=head2 Initialize
+
+Initialize the FHEM module
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        undef on success
+
+=cut
+
 sub Initialize {
     my ($hash) = @_;
 
@@ -161,13 +173,26 @@ sub Initialize {
     $hash->{UndefFn}     = \&Undefine;
     $hash->{AttrFn}      = \&Attr;
     $hash->{RenameFn}    = \&Rename;
-	
-	$hash->{AttrList}    = join( $SPACE, @WUattr ).$SPACE."class".$SPACE.$readingFnAttributes;
-	$hash->{".AttrList"} = join( $SPACE, @WUattr ).$SPACE."class".$SPACE.$readingFnAttributes;
+    
+    $hash->{AttrList}    = join( $SPACE, @WUattr ).$SPACE."class".$SPACE.$readingFnAttributes;
+    $hash->{".AttrList"} = join( $SPACE, @WUattr ).$SPACE."class".$SPACE.$readingFnAttributes;
 	
     return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 ###################################
+
+=head2 Define
+
+Define callback function for FHEM module instantiation
+
+    Parameters:
+        $hash - device hash reference
+        $def  - definition string
+    
+    Returns:
+        error message string or undef on success
+
+=cut
 
 sub Define {
     my $hash = shift;
@@ -195,27 +220,50 @@ sub Define {
 
     $hash->{helper}->{passObj} = FHEM::Core::Authentication::Passwords->new( $hash->{TYPE} );
 
-	getTimeTable($hash);
+    getTimeTable($hash);
 
     #start timer
     if ( !IsDisabled($name) && $init_done && defined( ReadPassword($hash) ) ) {
-         my $next = int( gettimeofday() ) + 1;
-         InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
-     }
-     if ( IsDisabled($name) ) {
-         readingsSingleUpdate( $hash, "state", "inactive", 1 );
-         $hash->{helper}{DISABLED} = 1;
-     }
+        my $next = int( gettimeofday() ) + 1;
+        InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
+    }
+    if ( IsDisabled($name) ) {
+        readingsSingleUpdate( $hash, "state", "inactive", 1 );
+        $hash->{helper}{DISABLED} = 1;
+    }
     return;
 }
-###################################
+=head2 Undefine
+
+Cleanup function called when device is undefined
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        undef
+
+=cut
+
 sub Undefine {
     my $hash = shift;
     RemoveInternalTimer($hash);
     DevIo_CloseDev($hash);
     return;
 }
-###################################
+=head2 Notify
+
+Notification callback for FHEM events
+
+    Parameters:
+        $hash - device hash reference
+        $dev  - event source device hash
+    
+    Returns:
+        undef
+
+=cut
+
 sub Notify {
     my ( $hash, $dev ) = @_;
     my $name = $hash->{NAME};               # own name / hash
@@ -228,7 +276,22 @@ sub Notify {
     InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
     return;
 }
-###################################
+=head2 Set
+
+Set command handler for device commands
+
+    Parameters:
+        $hash - device hash reference
+        $name - device name
+        $cmd  - command to execute
+        $arg  - command argument (optional)
+        $val  - command value (optional)
+    
+    Returns:
+        result string or error message
+
+=cut
+
 sub Set {
     my $hash = shift;
     my $name = shift;
@@ -248,7 +311,20 @@ sub Set {
     }
     return qq (Unknown argument $cmd, choose one of password);
 }
-###################################
+=head2 Get
+
+Get command handler for retrieving data
+
+    Parameters:
+        $hash - device hash reference
+        $name - device name
+        $cmd  - command to execute
+    
+    Returns:
+        result string or error message
+
+=cut
+
 sub Get {
     my $hash = shift;
     my $name = shift;
@@ -371,6 +447,21 @@ sub parseSchoolYear {
     processCmdQueue($hash);
     return;
 }
+
+=head2 Attr
+
+Attribute change handler
+
+    Parameters:
+        $cmd  - attribute command (set/del)
+        $name - device name
+        $attr - attribute name
+        $aVal - attribute value
+    
+    Returns:
+        error message string or undef on success
+
+=cut
 
 sub Attr {
     my $cmd  = shift;
@@ -565,35 +656,35 @@ sub parseLogin {
         delete $hash->{helper}{cmdQueue};
         return;
     } else {
-		
-		my $pType = $json->{result}->{personType} // "None";
-		if ($pType eq "12")
-		{
-			$pType = "Eltern (12)";
-		}
-		elsif( $pType eq "5" )
-		{
-			$pType = "Student (5)";
-		}
-		elsif( $pType eq "2" )
-		{
-			$pType = "Teacher (2)";
-		}
-		
-		$hash->{PERSONTYPE} = $pType;
-		$hash->{PERSONID} = $json->{result}->{personId} // "None";
-		$hash->{KLASSENID} = $json->{result}->{klasseId} // "None";
-		
-		if ($hash->{KLASSENID} ne "None" and $hash->{KLASSENID} ne "0")
-		{
-			$hash->{KLASSENNAME} = $hash->{helper}{classIdMap}{$hash->{KLASSENID}} // "id not found";
-		}
-		else
-		{
-			delete $hash->{KLASSENID};
-			delete $hash->{KLASSENNAME};
-		}
-	}
+        
+        my $pType = $json->{result}->{personType} // "None";
+        if ($pType eq "12")
+        {
+            $pType = "Eltern (12)";
+        }
+        elsif( $pType eq "5" )
+        {
+            $pType = "Student (5)";
+        }
+        elsif( $pType eq "2" )
+        {
+            $pType = "Teacher (2)";
+        }
+        
+        $hash->{PERSONTYPE} = $pType;
+        $hash->{PERSONID} = $json->{result}->{personId} // "None";
+        $hash->{KLASSENID} = $json->{result}->{klasseId} // "None";
+        
+        if ($hash->{KLASSENID} ne "None" and $hash->{KLASSENID} ne "0")
+        {
+            $hash->{KLASSENNAME} = $hash->{helper}{classIdMap}{$hash->{KLASSENID}} // "id not found";
+        }
+        else
+        {
+            delete $hash->{KLASSENID};
+            delete $hash->{KLASSENNAME};
+        }
+    }
     if ( $hash->{HTTPCookieHash} ) {
         foreach my $cookie ( sort keys %{ $hash->{HTTPCookieHash} } ) {
             my $cPath = $hash->{HTTPCookieHash}{$cookie}{Path};
@@ -805,171 +896,321 @@ sub parseClass {
     return;
 }
 
-sub parseTT {
-    my ( $param, $err, $data ) = @_;
-    my $hash = $param->{hash};
+=head2 _handleTimetableResponse
+
+Handle and validate timetable response data
+
+    Parameters:
+        $hash - device hash reference
+        $err  - error string if any
+        $data - raw response data
+    
+    Returns:
+        parsed and sorted JSON data array reference, or undef on error
+
+=cut
+
+sub _handleTimetableResponse {
+    my ($hash, $err, $data) = @_;
     my $name = $hash->{NAME};
-
-    CommandDeleteReading( undef, "$name e_.*" );
-
+    
     if ($err) {
         Log3 $name, LOG_ERROR, "[$name] $err" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
         delete $hash->{helper}{cmdQueue};
         return;
     }
+    
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getTT received $data");
     my $json = safe_decode_json( $hash, $data );
+    
     if (!$json) {
         Log3 $name, LOG_ERROR, "[$name] No JSON received for Timetable" ;
         readingsSingleUpdate( $hash, "state", "Error: No JSON for TT", 1 );
         delete $hash->{helper}{cmdQueue};
         return;
     }
+    
     if ( $json->{error} ) {
         Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
         readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
         delete $hash->{helper}{cmdQueue};
         return;
     }
-
-    #Log3 ($name, LOG_ERROR, Dumper(${$json->{result}}[0]));
+    
     my @dat = @{ $json->{result} };
+    my @sorted = sort { 
+        $a->{date} <=> $b->{date} or 
+        ($a->{code}//=$EMPTY) cmp ($b->{code}//=$EMPTY) or 
+        $a->{startTime} <=> $b->{startTime}
+    } @dat;
+    
+    Log3 $name, LOG_RECEIVE, Dumper(@sorted);
+    return \@sorted;
+}
 
-    my @sorted =
-      sort { $a->{date} <=> $b->{date} or ($a->{code}//=$EMPTY) cmp ($b->{code}//=$EMPTY) or $a->{startTime} <=> $b->{startTime}} @dat;
+=head2 parseTT
 
-    Log3 $name, LOG_RECEIVE, Dumper(@sorted) ;
+Parse timetable data from JSON response
 
-    $hash->{helper}{tt} = \@sorted;
+    Parameters:
+        $param - HTTP parameter hash
+        $err   - error string if any
+        $data  - JSON response data
+    
+    Returns:
+        undef
 
+=cut
+
+=head2 _calculateTimetableDates
+
+Calculate today and future date for timetable processing
+
+    Parameters:
+        $name - device name for getting attributes
+    
+    Returns:
+        ($today, $tomorrow) - formatted date strings
+
+=cut
+
+sub _calculateTimetableDates {
+    my $name = shift;
     my ( $s, $mi, $h, $d, $m, $y ) = localtime();
     my $today = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
-#    ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + 24 * 60 * 60 ) );
-	( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
+    
+    ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
     my $tomorrow = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    
+    return ($today, $tomorrow);
+}
 
+=head2 _processTimetableEntries
 
+Process timetable entries and generate HTML and exception data
 
+    Parameters:
+        $hash   - device hash reference
+        $sorted - sorted timetable entries array reference
+        $today  - today's date string
+        $tomorrow - tomorrow's date string
+    
+    Returns:
+        ($html, $exCnt, $rToday, $rTomorrow) - HTML string, exception count, today/tomorrow reading lists
+
+=cut
+
+sub _processTimetableEntries {
+    my ($hash, $sorted, $today, $tomorrow) = @_;
+    my $name = $hash->{NAME};
+    
     my $html = "<html><table>";
     my @exceptions = split( $COMMA, AttrVal( $name, "exceptionIndicator", $EMPTY ) );
-	my @exSu = split( $COMMA, AttrVal( $name, "excludeSubjects", $EMPTY ) );
+    my @exSu = split( $COMMA, AttrVal( $name, "excludeSubjects", $EMPTY ) );
     my ( $a, $exceptionFilter ) = ::parseParams( AttrVal( $name, "exceptionFilter", $EMPTY ) );
-    ##my %exceptionFilter = (lstext=>"2.HJ");
     my $exCnt = 0;
     my $rToday = "";
     my $rTomorrow = "";
-	my $lastE;
-	my $htmlRow = "";
-    foreach my $t (@sorted) {
-        my $exc;
-		# try to compare with previous / we have a matching item
-		my $old =$EMPTY;
-		my $new =$EMPTY;
-		if (defined ($lastE->{date})
-			and $lastE->{date} eq $t->{date} 
-			and $lastE->{endTime} eq $t->{startTime}
-		)
-		{	if ($lastE->{lstype}) {$old .= $lastE->{lstype}};
-			if ($lastE->{code}) {$old .= $lastE->{code}};
-			if ($lastE->{info}) {$old .= $lastE->{info}};
-			if ($lastE->{substText}) {$old .= $lastE->{substText}};
-			if ($lastE->{lstext}) {$old .= $lastE->{lstext}};
-			if ($lastE->{activityType}) {$old .= $lastE->{activityType}};
-			if ($t->{lstype}) {$new .= $t->{lstype}};
-			if ($t->{code}) {$new .= $t->{code}};
-			if ($t->{info}) {$new .= $t->{info}};
-			if ($t->{substText}) {$new .= $t->{substText}};
-			if ($t->{lstext}) {$new .= $t->{lstext}};
-			if ($t->{activityType}) {$new .= $t->{activityType}};
-		}
-		if ($old eq $new and $old ne $EMPTY){
-				$t->{startTime} = $lastE->{startTime};
-				$exc = 1;
-		}
-		else {
-			$html .= $htmlRow;
-			foreach my $e (@exceptions) {
-				if ( $t->{$e} ) {
-					if ( $exceptionFilter->{$e} && $t->{$e} =~ /$exceptionFilter->{$e}/ ) {
-						next;
-					}
-					if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/,@exSu)) {
-						next;
-					}
-					$exc = 1;
-					$exCnt++;
-					$lastE = $t;
-					last;
-				}
-			}
-		}
+    my $lastE;
+    my $htmlRow = "";
+    
+    foreach my $t (@$sorted) {
+        my $exc = _checkException($t, \$lastE, \@exceptions, \@exSu, $exceptionFilter, \$exCnt, \$htmlRow);
+        
         my $rn = ::makeReadingName( "e_" . sprintf( "%02d", $exCnt ) );
-        my $rv = $EMPTY;
-
-        $htmlRow = "<tr>";
-        my @fields = ( "date", "startTime", "endTime", "lstype", "code", "info", "substText", "lstext", "activityType", "ro", "su", "te" );
-        my @ofields = ( "ro", "su", "te" );
-        foreach my $f (@fields) {
-            $htmlRow .= "<td>";
-            if ( $t->{$f} ) {
-                if ( any { /^$f$/xsm } @ofields ) {
-                    if ( $t->{$f}[0]{longname} ) {
-                        $htmlRow .= $t->{$f}[0]{longname};
-                        $rv   .= $f.":longname=\"".$t->{$f}[0]{longname}."\"";
-                    }
-                    $htmlRow .= "</td><td>";
-                    $rv   .= $SPACE;
-                    if ( $t->{$f}[0]{name} ) {
-                        $html .= $t->{$f}[0]{name};
-                        $rv   .= $f.":name=\"".$t->{$f}[0]{name}."\"";
-                    }
-
-                }
-				## if we have an exception filter (ie 1.HJ) then we also don't want this value in the reading
-                elsif ( !($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/ )) {
-                    $htmlRow .= $t->{$f};
-                    $rv   .= $f."=\"".$t->{$f}."\"";
-                }
-                $htmlRow .= "</td>";
-                $rv   .= $SPACE;
-            }
-        }
-        $htmlRow .= "</tr>";
-		$html .= $htmlRow;
+        my $rv = _buildTimetableRow($t, $exceptionFilter, \$htmlRow);
+        
+        $html .= $htmlRow;
         if ($exc) {
             readingsSingleUpdate( $hash, $rn, $rv, 1 );
-            if ($t->{date} eq $today) {
-                if ($rToday eq $EMPTY) {
-                    $rToday .= $rn;    
-                }
-                else {
-                    $rToday .= $COMMA.$rn;
-                }
-            }
-            if ($t->{date} eq $tomorrow) {
-                if ($rTomorrow eq $EMPTY) {
-                    $rTomorrow .= $rn;    
-                }
-                else {
-                    $rTomorrow .= $COMMA.$rn;
-                }
-            }
-
+            $rToday = _addToReadingList($rToday, $rn) if ($t->{date} eq $today);
+            $rTomorrow = _addToReadingList($rTomorrow, $rn) if ($t->{date} eq $tomorrow);
         }
     }
+    
     $html .= "</table></html>";
+    return ($html, $exCnt, $rToday, $rTomorrow);
+}
 
-    #Log3 $name, LOG_ERROR, $html;
+=head2 _checkException
+
+Check if a timetable entry represents an exception
+
+    Parameters:
+        $t              - current timetable entry
+        $lastE_ref      - reference to last exception entry
+        $exceptions     - exceptions array reference
+        $exSu          - excluded subjects array reference
+        $exceptionFilter - exception filter hash reference
+        $exCnt_ref     - reference to exception count
+        $htmlRow_ref   - reference to HTML row string
+    
+    Returns:
+        1 if exception, 0 otherwise
+
+=cut
+
+sub _checkException {
+    my ($t, $lastE_ref, $exceptions, $exSu, $exceptionFilter, $exCnt_ref, $htmlRow_ref) = @_;
+    
+    my $exc;
+    my $old = $EMPTY;
+    my $new = $EMPTY;
+    my $lastE = $$lastE_ref;
+    
+    if (defined ($lastE->{date})
+        and $lastE->{date} eq $t->{date} 
+        and $lastE->{endTime} eq $t->{startTime}
+    )
+    {
+        $old .= _buildComparisonString($lastE);
+        $new .= _buildComparisonString($t);
+    }
+    
+    if ($old eq $new and $old ne $EMPTY) {
+        $t->{startTime} = $lastE->{startTime};
+        $exc = 1;
+    }
+    else {
+        $$htmlRow_ref = "";  # Reset HTML row
+        foreach my $e (@$exceptions) {
+            if ( $t->{$e} ) {
+                if ( $exceptionFilter->{$e} && $t->{$e} =~ /$exceptionFilter->{$e}/ ) {
+                    next;
+                }
+                if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/, @$exSu)) {
+                    next;
+                }
+                $exc = 1;
+                $$exCnt_ref++;
+                $$lastE_ref = $t;  # Update lastE reference
+                last;
+            }
+        }
+    }
+    
+    return $exc;
+}
+
+=head2 _buildComparisonString
+
+Build comparison string from timetable entry for duplicate detection
+
+    Parameters:
+        $entry - timetable entry hash reference
+    
+    Returns:
+        concatenated string of relevant fields
+
+=cut
+
+sub _buildComparisonString {
+    my $entry = shift;
+    my $str = $EMPTY;
+    
+    $str .= $entry->{lstype} if $entry->{lstype};
+    $str .= $entry->{code} if $entry->{code};
+    $str .= $entry->{info} if $entry->{info};
+    $str .= $entry->{substText} if $entry->{substText};
+    $str .= $entry->{lstext} if $entry->{lstext};
+    $str .= $entry->{activityType} if $entry->{activityType};
+    
+    return $str;
+}
+
+=head2 _buildTimetableRow
+
+Build HTML row and reading value for timetable entry
+
+    Parameters:
+        $t              - timetable entry
+        $exceptionFilter - exception filter hash reference
+        $htmlRow        - HTML row string reference
+    
+    Returns:
+        reading value string
+
+=cut
+
+sub _buildTimetableRow {
+    my ($t, $exceptionFilter, $htmlRow) = @_;
+    
+    my $rv = $EMPTY;
+    $$htmlRow = "<tr>";
+    my @fields = ( "date", "startTime", "endTime", "lstype", "code", "info", "substText", "lstext", "activityType", "ro", "su", "te" );
+    my @ofields = ( "ro", "su", "te" );
+    
+    foreach my $f (@fields) {
+        $$htmlRow .= "<td>";
+        if ( $t->{$f} ) {
+            if ( any { /^$f$/xsm } @ofields ) {
+                if ( $t->{$f}[0]{longname} ) {
+                    $$htmlRow .= $t->{$f}[0]{longname};
+                    $rv .= $f.":longname=\"".$t->{$f}[0]{longname}."\"";
+                }
+                $$htmlRow .= "</td><td>";
+                $rv .= $SPACE;
+                if ( $t->{$f}[0]{name} ) {
+                    $$htmlRow .= $t->{$f}[0]{name};
+                    $rv .= $f.":name=\"".$t->{$f}[0]{name}."\"";
+                }
+            }
+            elsif ( !($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/ )) {
+                $$htmlRow .= $t->{$f};
+                $rv .= $f."=\"".$t->{$f}."\"";
+            }
+            $$htmlRow .= "</td>";
+            $rv .= $SPACE;
+        }
+    }
+    $$htmlRow .= "</tr>";
+    
+    return $rv;
+}
+
+=head2 _addToReadingList
+
+Add reading name to comma-separated list
+
+    Parameters:
+        $list - current list string
+        $item - item to add
+    
+    Returns:
+        updated list string
+
+=cut
+
+sub _addToReadingList {
+    my ($list, $item) = @_;
+    return $item if ($list eq $EMPTY);
+    return $list . $COMMA . $item;
+}
+
+sub parseTT {
+    my ( $param, $err, $data ) = @_;
+    my $hash = $param->{hash};
+    my $name = $hash->{NAME};
+
+    CommandDeleteReading( undef, "$name e_.*" );
+    
+    my $sorted = _handleTimetableResponse($hash, $err, $data);
+    return unless $sorted;
+    
+    $hash->{helper}{tt} = $sorted;
+
+    my ($today, $tomorrow) = _calculateTimetableDates($name);
+    my ($html, $exCnt, $rToday, $rTomorrow) = _processTimetableEntries($hash, $sorted, $today, $tomorrow);
+
     $hash->{helper}{timetable} = $html;
     readingsSingleUpdate( $hash, "exceptionToday", join($COMMA,uniq(split($COMMA,$rToday))), 1 );
     readingsSingleUpdate( $hash, "exceptionTomorrow", join($COMMA,uniq(split($COMMA,$rTomorrow))), 1 );
     readingsSingleUpdate( $hash, "exceptionCount", $exCnt, 1 );
     readingsSingleUpdate( $hash, "state", "processing done", 1 );
-	
-	### Export timetable into iCal - file ### Sailor ###
-	exportTT2iCal($hash);
+    
+    exportTT2iCal($hash);
     return;
 }
 
