@@ -53,6 +53,18 @@ use DateTime; ## include iCal changes
 use DateTime::Format::Strptime;
 use Time::Local;
 
+# DateTime formatter for YYYYMMDD format used by Webuntis API
+my $date_formatter = DateTime::Format::Strptime->new(
+    pattern => '%Y%m%d',
+    on_error => 'croak',
+);
+
+# DateTime formatter for HHMM time format used by Webuntis API  
+my $time_formatter = DateTime::Format::Strptime->new(
+    pattern => '%H%M',
+    on_error => 'croak',
+);
+
 use Cwd;
 use Encode;
 
@@ -78,6 +90,58 @@ my $got_module = use_module_prio(
 );
 if ( !$got_module ) {
     $missingModul .= 'a JSON module (e.g. JSON::XS) ';
+}
+
+# Helper functions for date handling with DateTime
+sub format_date_for_api {
+    my $datetime = shift;
+    return $date_formatter->format_datetime($datetime);
+}
+
+sub parse_date_from_api {
+    my $date_string = shift;
+    return unless defined $date_string && length($date_string) >= 8;
+    
+    my $dt;
+    eval {
+        $dt = $date_formatter->parse_datetime($date_string);
+    };
+    if ($@) {
+        # Fallback for malformed dates
+        return undef;
+    }
+    return $dt;
+}
+
+sub get_today_as_string {
+    my $today = DateTime->now;
+    return format_date_for_api($today);
+}
+
+sub format_time_for_display {
+    my $time_string = shift;
+    return '' unless defined $time_string;
+    
+    if (length($time_string) >= 4) {
+        my $hour = substr($time_string, 0, 2);
+        my $minute = substr($time_string, 2, 2);
+        return "$hour:$minute";
+    } elsif (length($time_string) == 3) {
+        my $hour = "0" . substr($time_string, 0, 1);
+        my $minute = substr($time_string, 1, 2);
+        return "$hour:$minute";
+    }
+    return '';
+}
+
+sub format_date_for_display {
+    my $date_string = shift;
+    return '' unless defined $date_string;
+    
+    my $dt = parse_date_from_api($date_string);
+    return '' unless $dt;
+    
+    return $dt->strftime("%d.%m.%Y");
 }
 
 # Readonly is recommended, but requires additional module
@@ -341,8 +405,7 @@ sub parseSchoolYear {
 
     my @years = @{ $json->{result} };
     # Find current school year (where today is between startDate and endDate)
-    my ($s, $mi, $h, $d, $m, $y) = localtime();
-    my $today = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    my $today = get_today_as_string();
     my ($currentStart, $currentEnd, $currentName);
     my $currentId;
     foreach my $year (@years) {
@@ -655,12 +718,13 @@ sub getTT {
             $startDayDelta = $wday - $weekdays{$startDay} if(($wday - $weekdays{$startDay}) > 0);
         }
     }
-    my $target_time = timelocal($s, $mi, $h, $d-$startDayDelta, $m, $y);
-    ($s, $mi, $h, $d, $m, $y) = localtime($target_time);
-    my $startdate = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    
+    # Use DateTime for date calculations
+    my $start_dt = DateTime->now->subtract(days => $startDayDelta);
+    my $startdate = format_date_for_api($start_dt);
 
-    ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
-    my $enddate = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    my $end_dt = DateTime->now->add(days => AttrNum( $name, 'DaysTimetable', 7 ));
+    my $enddate = format_date_for_api($end_dt);
 
     # Limit to school year boundaries if set
     my $schoolYearStart = ReadingsVal($name, 'schoolYearStart', '');
@@ -844,11 +908,9 @@ sub parseTT {
 
     $hash->{helper}{tt} = \@sorted;
 
-    my ( $s, $mi, $h, $d, $m, $y ) = localtime();
-    my $today = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
-#    ( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + 24 * 60 * 60 ) );
-	( $s, $mi, $h, $d, $m, $y ) = localtime( ( time + AttrNum( $name, 'DaysTimetable', 7 ) * 24 * 60 * 60 ) );
-    my $tomorrow = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
+    my $today = get_today_as_string();
+    my $tomorrow_dt = DateTime->now->add(days => AttrNum( $name, 'DaysTimetable', 7 ));
+    my $tomorrow = format_date_for_api($tomorrow_dt);
 
 
 
@@ -995,31 +1057,16 @@ sub simpleTable {
             my $formatted;
 			my $val = $h->{$f} // 'default';  # default to empty string if undef
             if ($f =~ /date/) {
-                if (length($val) >= 8) {
-					my $j = substr($val, 0, 4);
-					my $m = substr($val, 4, 2);
-					my $d = substr($val, 6, 2);
-					$formatted = "$d.$m.$j";
-				} else {
-					$formatted = '';  # or keep original $val, or log a warning
-					Log3 ($name, LOG_ERROR, "SimpleTable: Date string too short: $val");
-				}
+                $formatted = format_date_for_display($val);
+                if (!$formatted && $val ne 'default') {
+                    Log3 ($name, LOG_ERROR, "SimpleTable: Date string could not be parsed: $val");
+                }
             }
             elsif ($f =~ /Time/) {
-				if (length($val) >= 4) {
-					my $ho = substr($val, 0, 2);
-					my $m  = substr($val, 2, 2);
-					$formatted = "$ho:$m";
-				}
-				elsif (length($val) == 3) {
-					my $ho = "0" . substr($val, 0, 1);
-					my $m  = substr($val, 1, 2);
-					$formatted = "$ho:$m";
-				}
-				else {
-					$formatted = '';  # or keep $val
-					Log3 ($name, LOG_ERROR, "SimpleTable: Time string too short: $val");
-				}
+				$formatted = format_time_for_display($val);
+                if (!$formatted && $val ne 'default') {
+                    Log3 ($name, LOG_ERROR, "SimpleTable: Time string could not be parsed: $val");
+                }
 			}
             elsif ($f eq "code" and $val ne 'default') {
                         $formatted = $codeMap{$val};
@@ -1180,10 +1227,9 @@ sub exportTT2iCal {
 		my @jsonTimeTable = $hash->{helper}{tt};
 		my $user          = AttrVal($name, "user"    , "NA");
 
-		### Get current timestamp
-		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
-		$year = $year + 1900;
-		$mon++;
+		### Get current timestamp using DateTime
+		my $now = DateTime->now;
+		my $timestamp = $now->strftime('%Y%m%dT%H%M%S');
 
 		####START##### Transform json-Timetable in ical Timetable #####START####
 		$iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
@@ -1214,7 +1260,7 @@ sub exportTT2iCal {
 				$iCalFileContent .= "LOCATION:"                   . $TTLocation . "\n";
 				$iCalFileContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{startTime}) . "00\n";
 				$iCalFileContent .= "DTEND;TZID=Europe/Berlin:"   . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{endTime})   . "00\n";
-				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . sprintf('%04d', $year) . sprintf('%02d', $mon) . sprintf('%02d', $mday) . "T" . sprintf('%02d', $hour) . sprintf('%02d', $min) . sprintf('%02d', $sec)  ."\n";
+				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . $timestamp ."\n";
 				$iCalFileContent .= "SUMMARY:"                    . $CalSubject . "\n";
 				$iCalFileContent .= "DESCRIPTION:"                . $CalInfo . "\n";
 				$iCalFileContent .= "END:VEVENT\n\n";
