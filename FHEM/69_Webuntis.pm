@@ -354,7 +354,10 @@ sub Get {
     if ( $cmd eq 'schoolYear' ) {
         return getSchoolYear($hash);
     }
-    return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg);
+    if ( $cmd eq 'passwordStatus' ) {
+        return getPasswordStatus($hash);
+    }
+    return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg passwordStatus:noArg);
 }
 ###################################
 # Retrieve school year boundaries from server
@@ -574,6 +577,30 @@ sub wuTimer {
     my $next = int( gettimeofday() ) + AttrNum( $name, 'interval', 3600 );
     InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
     return;
+}
+
+###################################
+# Get current password validation status
+###################################
+sub getPasswordStatus {
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    
+    if (!defined(ReadPassword($hash))) {
+        return "No password configured - use: set $name password <your_password>";
+    }
+    
+    my $status = $hash->{helper}{passwordValid};
+    if (!defined($status)) {
+        return "Password status unknown - not yet tested";
+    } elsif ($status == 1) {
+        return "Password valid - last authentication successful";
+    } elsif ($status == 0) {
+        my $lastError = ReadingsVal($name, "lastError", "Unknown authentication error");
+        return "Password invalid - $lastError";
+    } else {
+        return "Password status unclear - please check logs";
+    }
 }
 
 ###################################
@@ -1588,11 +1615,12 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='timetable'></a>reads the timetable data from Webuntis</li>
 <li><a name='retrieveClasses'></a>reads the classes from Webuntis</li>
 <li><a name='Classes'></a>display retrieved Classes</li>
+<li><a name='passwordStatus'></a>checks current password validation status</li>
  </ul>
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'></a>usually only needed initially (or if you change your password in the cloud)</li>
+<li><a name='password'></a>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
@@ -1628,11 +1656,12 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='timetable'>reads the timetable data from Webuntis</a></li>
 <li><a name='retrieveClasses'>reads theclasses from Webuntis</a></li>
 <li><a name='Classes'>display retrieved Classes</a></li>
+<li><a name='passwordStatus'>checks current password validation status</a></li>
  </ul>
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'>usually only needed initially (or if you change your password in the cloud)</a></li>
+<li><a name='password'>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</a></li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
