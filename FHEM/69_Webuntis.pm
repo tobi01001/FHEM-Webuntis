@@ -830,7 +830,7 @@ sub parseClass {
     foreach my $d (@dat) {
         $html .= "<tr>";
 		$className = $d->{name};
-		$className =~ s/ /_/g;
+		$className =~ s/[^a-zA-Z0-9_]/_/g;
 		push(@classNames, $className);
         $classMap{ $className } = $d->{id};
 		$classIdMap{ $d->{id} } = $className;
