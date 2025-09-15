@@ -1390,7 +1390,7 @@ sub exportTT2iCal {
 			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format       : WINDOWS";
 
 			### Find out whether it is an absolute path or an relative one (containing ":\")
-			if ($iCalPath != /^.:\//) {
+			if ($iCalPath !~ /^.:\\/) {
 				$iCalFileName = $cwd . $iCalPath;
 			}
 			else {
@@ -1416,7 +1416,21 @@ sub exportTT2iCal {
 
 		Log3 $name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to  : " . $iCalFileName;
 		
-		open(FH, '>', $iCalFileName);
+		# Check if directory exists and is writable
+		if (!-d $IcalFileDir) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory does not exist: " . $IcalFileDir;
+			return;
+		}
+		
+		if (!-w $IcalFileDir) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory is not writable: " . $IcalFileDir;
+			return;
+		}
+		
+		if (!open(FH, '>', $iCalFileName)) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot open file for writing: " . $iCalFileName . " - " . $!;
+			return;
+		}
 		print FH $iCalFileContent;
 		close(FH);
 	}
