@@ -259,6 +259,11 @@ sub Define {
 
     $hash->{helper}->{passObj} = FHEM::Core::Authentication::Passwords->new( $hash->{TYPE} );
 
+    # Initialize password validation status
+    if (defined(ReadPassword($hash))) {
+        $hash->{helper}{passwordValid} = 0;  # Unknown until first successful authentication
+    }
+
 	getTimeTable($hash);
 
     #start timer
@@ -305,6 +310,10 @@ sub Set {
     if ( $cmd eq 'password' ) {
 
         my $err = StorePassword( $hash, $arg );
+        # Reset password validation status when new password is set
+        delete $hash->{helper}{passwordValid};
+        delete $hash->{READINGS}{lastError}; # Clear any previous authentication errors
+        
         if ( !IsDisabled($name) && defined( ReadPassword($hash) ) ) {
             my $next = int( gettimeofday() ) + 1;
             InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
@@ -324,6 +333,11 @@ sub Get {
          return qq(set password first);
     }
 
+    # Check if password was previously marked as invalid
+    if (defined($hash->{helper}{passwordValid}) && $hash->{helper}{passwordValid} == 0) {
+        return qq(Authentication failed - please update password: set $name password <new_password>);
+    }
+
     clearTimerOperation($hash);
 
     if ( $cmd eq 'timetable' ) {
@@ -338,7 +352,10 @@ sub Get {
     if ( $cmd eq 'schoolYear' ) {
         return getSchoolYear($hash);
     }
-    return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg);
+    if ( $cmd eq 'passwordStatus' ) {
+        return getPasswordStatus($hash);
+    }
+    return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg passwordStatus:noArg);
 }
 ###################################
 # Retrieve school year boundaries from server
@@ -395,7 +412,8 @@ sub parseSchoolYear {
         return;
     }
     if ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear", $errorCode);
         return;
     }
 
@@ -560,6 +578,30 @@ sub wuTimer {
 }
 
 ###################################
+# Get current password validation status
+###################################
+sub getPasswordStatus {
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    
+    if (!defined(ReadPassword($hash))) {
+        return "No password configured - use: set $name password <your_password>";
+    }
+    
+    my $status = $hash->{helper}{passwordValid};
+    if (!defined($status)) {
+        return "Password status unknown - not yet tested";
+    } elsif ($status == 1) {
+        return "Password valid - last authentication successful";
+    } elsif ($status == 0) {
+        my $lastError = ReadingsVal($name, "lastError", "Unknown authentication error");
+        return "Password invalid - $lastError";
+    } else {
+        return "Password status unclear - please check logs";
+    }
+}
+
+###################################
 # subroutine to retrieve classes from server
 ###################################
 sub retrieveClasses {
@@ -668,11 +710,14 @@ sub parseLogin {
         return if handleRetryOrFail($hash, "No JSON after Login", "parseLogin");
         return;
     } elsif ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin", $errorCode);
         return;
     } else {
-        # Success - reset retry count
+        # Success - reset retry count and mark password as valid
         delete $hash->{helper}{retryCount};
+        $hash->{helper}{passwordValid} = 1;
+        delete $hash->{READINGS}{lastError}; # Clear any previous error
 		
 		my $pType = $json->{result}->{personType} // "None";
 		if ($pType eq "12")
@@ -855,7 +900,8 @@ sub parseClass {
         return;
     }
     if ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass", $errorCode);
         return;
     }
 
@@ -930,7 +976,8 @@ sub parseTT {
         return;
     }
     if ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT", $errorCode);
         return;
     }
 
@@ -1198,6 +1245,26 @@ sub clearTimerOperation {
     return;
 }
 
+sub isAuthenticationError {
+    my ($error, $errorCode) = @_;
+    
+    return 0 if !defined($error);
+    
+    # Check for WebUntis-specific authentication error codes
+    # Common WebUntis authentication error codes: -8504, -8520, -8521, -8522
+    return 1 if defined($errorCode) && ($errorCode == -8504 || $errorCode == -8520 || $errorCode == -8521 || $errorCode == -8522);
+    
+    # Check for common authentication error patterns in message
+    return 1 if $error =~ /invalid.*(?:credentials|password|username|login)/i;
+    return 1 if $error =~ /authentication.*(?:failed|error)/i;
+    return 1 if $error =~ /unauthorized|access.*denied/i;
+    return 1 if $error =~ /bad.*(?:credentials|password|username)/i;
+    return 1 if $error =~ /wrong.*(?:password|username|credentials)/i;
+    return 1 if $error =~ /login.*(?:failed|incorrect|invalid)/i;
+    
+    return 0;
+}
+
 sub isTransientError {
     my $error = shift;
     
@@ -1220,9 +1287,31 @@ sub isTransientError {
     return 0; # Default to permanent error for safety
 }
 
-sub handleRetryOrFail {
-    my ($hash, $error, $context) = @_;
+sub handleAuthenticationError {
+    my ($hash, $error, $errorCode, $context) = @_;
     my $name = $hash->{NAME};
+    
+    # Mark password as invalid
+    $hash->{helper}{passwordValid} = 0;
+    delete $hash->{helper}{retryCount};
+    delete $hash->{helper}{cmdQueue};
+    
+    my $message = "Authentication failed - Invalid credentials. Please update your password using: set $name password <new_password>";
+    Log3 $name, LOG_ERROR, "[$name] $message ($error)";
+    readingsSingleUpdate($hash, "state", "Authentication Error - Update Password", 1);
+    readingsSingleUpdate($hash, "lastError", $message, 1);
+    
+    return 0; # Not handled - processing stops
+}
+
+sub handleRetryOrFail {
+    my ($hash, $error, $context, $errorCode) = @_;
+    my $name = $hash->{NAME};
+    
+    # Check for authentication errors first - these should not be retried
+    if (isAuthenticationError($error, $errorCode)) {
+        return handleAuthenticationError($hash, $error, $errorCode, $context);
+    }
     
     # Get retry configuration from attributes (with defaults)
     my $maxRetries = AttrNum($name, 'maxRetries', 3);
@@ -1522,11 +1611,12 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='timetable'></a>reads the timetable data from Webuntis</li>
 <li><a name='retrieveClasses'></a>reads the classes from Webuntis</li>
 <li><a name='Classes'></a>display retrieved Classes</li>
+<li><a name='passwordStatus'></a>checks current password validation status</li>
  </ul>
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'></a>usually only needed initially (or if you change your password in the cloud)</li>
+<li><a name='password'></a>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
@@ -1562,11 +1652,12 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='timetable'>reads the timetable data from Webuntis</a></li>
 <li><a name='retrieveClasses'>reads theclasses from Webuntis</a></li>
 <li><a name='Classes'>display retrieved Classes</a></li>
+<li><a name='passwordStatus'>checks current password validation status</a></li>
  </ul>
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'>usually only needed initially (or if you change your password in the cloud)</a></li>
+<li><a name='password'>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</a></li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
