@@ -255,7 +255,7 @@ sub Get {
     my $cmd  = shift // return "get $name needs at least one argument";
 
     if ( !ReadPassword($hash) ) {
-         return qq(set password first);
+         return qq(Password not set or has expired. Please set password with: set $name password <your_webuntis_password>);
     }
 
     delete $hash->{helper}{cmdQueue};
@@ -318,8 +318,16 @@ sub parseSchoolYear {
     my $name = $hash->{NAME};
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
+        Log3 $name, LOG_ERROR, "[$name] HTTP error during getSchoolYear: $err" ;
+        
+        # Check if it's an authentication-related HTTP error
+        if ($err =~ /401|unauthorized/i || $err =~ /403|forbidden/i) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Session expired - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Session expired during school year retrieval, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Network error: ".$err, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     }
@@ -333,8 +341,17 @@ sub parseSchoolYear {
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
+        my $errorMsg = $json->{error}{message};
+        Log3 $name, LOG_ERROR, "[$name] $errorMsg" ;
+        
+        # Check if the error is related to session expiration or authentication
+        if (isAuthenticationError($errorMsg)) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Session expired - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Session may have expired, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Error: ".$errorMsg, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     }
@@ -477,10 +494,12 @@ sub getClasses {
     my $name = $hash->{NAME};
     if (   AttrVal( $name, "school", "NA" ) eq "NA"
         or AttrVal( $name, "server",   "NA" ) eq "NA"
-        or AttrVal( $name, "user",     "NA" ) eq "NA"
-        or !ReadPassword($hash) )
+        or AttrVal( $name, "user",     "NA" ) eq "NA" )
     {
-        return "Please maintain Attributes first";
+        return "Please maintain required attributes: server, school, user";
+    }
+    if ( !ReadPassword($hash) ) {
+        return "Password not set or has expired. Please set password with: set $name password <your_webuntis_password>";
     }
 
     if ( $hash->{helper}{classes} ) {
@@ -499,10 +518,12 @@ sub getTimeTable {
     if (   AttrVal( $name, "school", "NA" ) eq "NA"
         or AttrVal( $name, "server", "NA" ) eq "NA"
         or AttrVal( $name, "user",   "NA" ) eq "NA"
-        or !ReadPassword($hash)
         or AttrVal( $name, "class",  "NA" ) eq "NA" )
     {
-        return "Please maintain Attributes first";
+        return "Please maintain required attributes: server, school, user, class";
+    }
+    if ( !ReadPassword($hash) ) {
+        return "Password not set or has expired. Please set password with: set $name password <your_webuntis_password>";
     }
     push @{ $hash->{helper}{cmdQueue} }, \&login;
     if (!$hash->{helper}{classMap}) {
@@ -552,6 +573,22 @@ sub parseLogin {
     my $header  = $param->{httpheader};
     my $cookies = getCookies( $hash, $header );
 
+    # Handle HTTP-level errors first
+    if ($err) {
+        Log3( $name, LOG_ERROR, "[$name] HTTP error during login: $err" );
+        
+        # Check if it's an authentication-related HTTP error
+        if ($err =~ /401|unauthorized/i || $err =~ /403|forbidden/i) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Authentication failed - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] HTTP authentication failed, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Network error: $err", 1 );
+        }
+        delete $hash->{helper}{cmdQueue};
+        return;
+    }
+
     my $json = safe_decode_json( $hash, $data );
     Log3( $name, LOG_RECEIVE, "login received $data");
     if (!$json) {
@@ -560,11 +597,22 @@ sub parseLogin {
         delete $hash->{helper}{cmdQueue};
         return;
     } elsif ( $json->{error} ) {
-        Log3( $name, LOG_ERROR, "[$name] $json->{error}{message}" );
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
+        my $errorMsg = $json->{error}{message};
+        Log3( $name, LOG_ERROR, "[$name] $errorMsg" );
+        
+        # Check if the error is related to authentication/password issues
+        if (isAuthenticationError($errorMsg)) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Authentication failed - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Authentication failed, password may have expired or been changed. Please update with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Error: ".$errorMsg, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     } else {
+        # Authentication was successful, reset failure counter
+        resetAuthFailureCount($hash);
 		
 		my $pType = $json->{result}->{personType} // "None";
 		if ($pType eq "12")
@@ -735,8 +783,16 @@ sub parseClass {
     my $name = $hash->{NAME};
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
+        Log3 $name, LOG_ERROR, "[$name] HTTP error during getClass: $err" ;
+        
+        # Check if it's an authentication-related HTTP error
+        if ($err =~ /401|unauthorized/i || $err =~ /403|forbidden/i) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Session expired - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Session expired during class retrieval, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Network error: ".$err, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     }
@@ -750,8 +806,17 @@ sub parseClass {
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
+        my $errorMsg = $json->{error}{message};
+        Log3 $name, LOG_ERROR, "[$name] $errorMsg" ;
+        
+        # Check if the error is related to session expiration or authentication
+        if (isAuthenticationError($errorMsg)) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Session expired - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Session may have expired, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Error: ".$errorMsg, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     }
@@ -813,8 +878,16 @@ sub parseTT {
     CommandDeleteReading( undef, "$name e_.*" );
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
+        Log3 $name, LOG_ERROR, "[$name] HTTP error during getTT: $err" ;
+        
+        # Check if it's an authentication-related HTTP error
+        if ($err =~ /401|unauthorized/i || $err =~ /403|forbidden/i) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Session expired - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Session expired during timetable retrieval, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Network error: ".$err, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     }
@@ -828,8 +901,17 @@ sub parseTT {
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
+        my $errorMsg = $json->{error}{message};
+        Log3 $name, LOG_ERROR, "[$name] $errorMsg" ;
+        
+        # Check if the error is related to session expiration or authentication
+        if (isAuthenticationError($errorMsg)) {
+            invalidatePassword($hash);
+            readingsSingleUpdate( $hash, "state", "Session expired - Please update password with: set $name password <new_password>", 1 );
+            Log3( $name, LOG_WARNING, "[$name] Session may have expired, please update password with: set $name password <new_password>" );
+        } else {
+            readingsSingleUpdate( $hash, "state", "Error: ".$errorMsg, 1 );
+        }
         delete $hash->{helper}{cmdQueue};
         return;
     }
@@ -1126,6 +1208,75 @@ sub use_module_prio {
     return;
 }
 
+sub isAuthenticationError {
+    my $errorMsg = shift;
+    
+    # Common WebUntis authentication error patterns
+    return 1 if ($errorMsg =~ /authentication\s+failed/i);
+    return 1 if ($errorMsg =~ /invalid\s+credentials/i);
+    return 1 if ($errorMsg =~ /wrong\s+password/i);
+    return 1 if ($errorMsg =~ /bad\s+credentials/i);
+    return 1 if ($errorMsg =~ /login\s+failed/i);
+    return 1 if ($errorMsg =~ /unauthorized/i);
+    return 1 if ($errorMsg =~ /access\s+denied/i);
+    return 1 if ($errorMsg =~ /invalid\s+username\s+or\s+password/i);
+    return 1 if ($errorMsg =~ /user\s+not\s+found/i);
+    return 1 if ($errorMsg =~ /password\s+expired/i);
+    return 1 if ($errorMsg =~ /account\s+locked/i);
+    
+    # WebUntis specific error patterns
+    return 1 if ($errorMsg =~ /session\s+expired/i);
+    return 1 if ($errorMsg =~ /invalid\s+session/i);
+    return 1 if ($errorMsg =~ /not\s+authenticated/i);
+    return 1 if ($errorMsg =~ /auth\s+required/i);
+    return 1 if ($errorMsg =~ /token\s+expired/i);
+    return 1 if ($errorMsg =~ /invalid\s+token/i);
+    return 1 if ($errorMsg =~ /authentication\s+required/i);
+    return 1 if ($errorMsg =~ /login\s+required/i);
+    
+    return 0;
+}
+
+sub invalidatePassword {
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    
+    # Increment authentication failure counter
+    $hash->{helper}{authFailureCount} = ($hash->{helper}{authFailureCount} // 0) + 1;
+    my $failureCount = $hash->{helper}{authFailureCount};
+    
+    # Clear the stored password to force user to set a new one
+    my ( $passResp, $passErr ) = $hash->{helper}->{passObj}->setDeletePassword( $name );
+    
+    if ( defined($passErr) ) {
+        Log3 $name, LOG_ERROR, "[$name] Error while clearing invalid password - $passErr" ;
+    } else {
+        Log3 $name, LOG_WARNING, "[$name] Stored password has been cleared due to authentication failure ($failureCount attempts)" ;
+    }
+    
+    # If multiple failures, add additional warning
+    if ($failureCount >= 3) {
+        Log3 $name, LOG_ERROR, "[$name] Multiple authentication failures ($failureCount attempts). Please verify username and password are correct" ;
+        readingsSingleUpdate( $hash, "authFailures", $failureCount, 1 );
+    }
+    
+    return;
+}
+
+sub resetAuthFailureCount {
+    my $hash = shift;
+    my $name = $hash->{NAME};
+    
+    # Reset failure counter on successful authentication
+    if (defined($hash->{helper}{authFailureCount}) && $hash->{helper}{authFailureCount} > 0) {
+        Log3 $name, LOG_DEBUG, "[$name] Authentication successful, resetting failure count" ;
+        delete $hash->{helper}{authFailureCount};
+        readingsSingleUpdate( $hash, "authFailures", 0, 1 );
+    }
+    
+    return;
+}
+
 sub StorePassword {
     my $hash     = shift;
     my $password = shift;
@@ -1138,6 +1289,9 @@ sub StorePassword {
         return "error while saving the password - $passErr";
     }
 
+    # Reset authentication failure counter when password is successfully stored
+    resetAuthFailureCount($hash);
+    
     return "password successfully saved";
 }
 
@@ -1335,7 +1489,7 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'></a>usually only needed initially (or if you change your password in the cloud)</li>
+<li><a name='password'></a>Set your WebUntis password. The module automatically detects authentication errors and will prompt you to update the password if it expires or changes. If authentication fails repeatedly, the stored password will be cleared for security.</li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
@@ -1375,7 +1529,7 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'>usually only needed initially (or if you change your password in the cloud)</a></li>
+<li><a name='password'>Set your WebUntis password. The module automatically detects authentication errors and will prompt you to update the password if it expires or changes. If authentication fails repeatedly, the stored password will be cleared for security.</a></li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
