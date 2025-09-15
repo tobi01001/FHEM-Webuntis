@@ -259,6 +259,12 @@ sub Define {
 
     $hash->{helper}->{passObj} = FHEM::Core::Authentication::Passwords->new( $hash->{TYPE} );
 
+    # Initialize password validation status
+    if (defined(ReadPassword($hash))) {
+        $hash->{helper}{passwordValid} = 0;  # Unknown until first successful authentication
+        readingsSingleUpdate($hash, "passwordValid", "unknown", 1);
+    }
+
 	getTimeTable($hash);
 
     #start timer
@@ -305,6 +311,11 @@ sub Set {
     if ( $cmd eq 'password' ) {
 
         my $err = StorePassword( $hash, $arg );
+        # Reset password validation status when new password is set
+        delete $hash->{helper}{passwordValid};
+        readingsSingleUpdate($hash, "passwordValid", "unknown", 1);
+        delete $hash->{READINGS}{lastError}; # Clear any previous authentication errors
+        
         if ( !IsDisabled($name) && defined( ReadPassword($hash) ) ) {
             my $next = int( gettimeofday() ) + 1;
             InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
@@ -322,6 +333,11 @@ sub Get {
 
     if ( !ReadPassword($hash) ) {
          return qq(set password first);
+    }
+
+    # Check if password was previously marked as invalid
+    if (defined($hash->{helper}{passwordValid}) && $hash->{helper}{passwordValid} == 0) {
+        return qq(Authentication failed - please update password: set $name password <new_password>);
     }
 
     clearTimerOperation($hash);
@@ -395,7 +411,8 @@ sub parseSchoolYear {
         return;
     }
     if ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear", $errorCode);
         return;
     }
 
@@ -668,11 +685,15 @@ sub parseLogin {
         return if handleRetryOrFail($hash, "No JSON after Login", "parseLogin");
         return;
     } elsif ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin", $errorCode);
         return;
     } else {
-        # Success - reset retry count
+        # Success - reset retry count and mark password as valid
         delete $hash->{helper}{retryCount};
+        $hash->{helper}{passwordValid} = 1;
+        readingsSingleUpdate($hash, "passwordValid", "yes", 1);
+        delete $hash->{READINGS}{lastError}; # Clear any previous error
 		
 		my $pType = $json->{result}->{personType} // "None";
 		if ($pType eq "12")
@@ -855,7 +876,8 @@ sub parseClass {
         return;
     }
     if ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass", $errorCode);
         return;
     }
 
@@ -930,7 +952,8 @@ sub parseTT {
         return;
     }
     if ( $json->{error} ) {
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT");
+        my $errorCode = $json->{error}{code};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT", $errorCode);
         return;
     }
 
@@ -1198,6 +1221,26 @@ sub clearTimerOperation {
     return;
 }
 
+sub isAuthenticationError {
+    my ($error, $errorCode) = @_;
+    
+    return 0 if !defined($error);
+    
+    # Check for WebUntis-specific authentication error codes
+    # Common WebUntis authentication error codes: -8504, -8520, -8521, -8522
+    return 1 if defined($errorCode) && ($errorCode == -8504 || $errorCode == -8520 || $errorCode == -8521 || $errorCode == -8522);
+    
+    # Check for common authentication error patterns in message
+    return 1 if $error =~ /invalid.*(?:credentials|password|username|login)/i;
+    return 1 if $error =~ /authentication.*(?:failed|error)/i;
+    return 1 if $error =~ /unauthorized|access.*denied/i;
+    return 1 if $error =~ /bad.*(?:credentials|password|username)/i;
+    return 1 if $error =~ /wrong.*(?:password|username|credentials)/i;
+    return 1 if $error =~ /login.*(?:failed|incorrect|invalid)/i;
+    
+    return 0;
+}
+
 sub isTransientError {
     my $error = shift;
     
@@ -1220,9 +1263,32 @@ sub isTransientError {
     return 0; # Default to permanent error for safety
 }
 
-sub handleRetryOrFail {
-    my ($hash, $error, $context) = @_;
+sub handleAuthenticationError {
+    my ($hash, $error, $errorCode, $context) = @_;
     my $name = $hash->{NAME};
+    
+    # Mark password as invalid
+    $hash->{helper}{passwordValid} = 0;
+    delete $hash->{helper}{retryCount};
+    delete $hash->{helper}{cmdQueue};
+    
+    my $message = "Authentication failed - Invalid credentials. Please update your password using: set $name password <new_password>";
+    Log3 $name, LOG_ERROR, "[$name] $message ($error)";
+    readingsSingleUpdate($hash, "state", "Authentication Error - Update Password", 1);
+    readingsSingleUpdate($hash, "lastError", $message, 1);
+    readingsSingleUpdate($hash, "passwordValid", "no", 1);
+    
+    return 0; # Not handled - processing stops
+}
+
+sub handleRetryOrFail {
+    my ($hash, $error, $context, $errorCode) = @_;
+    my $name = $hash->{NAME};
+    
+    # Check for authentication errors first - these should not be retried
+    if (isAuthenticationError($error, $errorCode)) {
+        return handleAuthenticationError($hash, $error, $errorCode, $context);
+    }
     
     # Get retry configuration from attributes (with defaults)
     my $maxRetries = AttrNum($name, 'maxRetries', 3);
