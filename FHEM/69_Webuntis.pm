@@ -351,8 +351,18 @@ sub Get {
     return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg);
 }
 ###################################
-# Retrieve school year boundaries from server
-###################################
+=head2 getSchoolYear
+
+Retrieve school year boundaries from server
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        status message string
+
+=cut
+
 sub getSchoolYear {
     my $hash = shift;
     my $name = $hash->{NAME};
@@ -546,8 +556,18 @@ sub wuTimer {
 }
 
 ###################################
-# subroutine to retrieve classes from server
-###################################
+=head2 retrieveClasses
+
+Retrieve classes from server asynchronously
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        undef
+
+=cut
+
 sub retrieveClasses {
     my $hash = shift;
 
@@ -560,9 +580,18 @@ sub retrieveClasses {
 }
 
 ###################################
-# subroutine to retrieve classes from server
-# returns: "Please maintain Attributes first" or "Retrieving classes, please try again in a second"
-###################################
+=head2 getClasses
+
+Get class list from server or cached data
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        class list HTML or error message
+
+=cut
+
 sub getClasses {
     my $hash = shift;
     my $name = $hash->{NAME};
@@ -582,7 +611,18 @@ sub getClasses {
     return "Retrieving classes, please try again in a second";
 }
 
-###################################
+=head2 getTimeTable
+
+Retrieve timetable data from Webuntis server
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        result string or starts asynchronous processing
+
+=cut
+
 sub getTimeTable {
     my $hash = shift;
 
@@ -1214,6 +1254,19 @@ sub parseTT {
     return;
 }
 
+=head2 simpleTable
+
+Generate a simple HTML table from timetable exception data
+
+    Parameters:
+        $name    - device name
+        $pattern - field pattern (optional)
+    
+    Returns:
+        HTML table string
+
+=cut
+
 sub simpleTable {
     my $name = shift;
     my $pattern = shift;
@@ -1277,6 +1330,18 @@ sub simpleTable {
     $html .= "</table></body></html>";
 
 }
+
+=head2 uniq
+
+Remove duplicate values from array
+
+    Parameters:
+        @_ - array of values
+    
+    Returns:
+        array with unique values only
+
+=cut
 
 sub uniq {
     my %seen;
@@ -1367,6 +1432,19 @@ sub use_module_prio {
     return;
 }
 
+=head2 StorePassword
+
+Store password securely using FHEM authentication system
+
+    Parameters:
+        $hash     - device hash reference
+        $password - password string to store
+    
+    Returns:
+        result message string
+
+=cut
+
 sub StorePassword {
     my $hash     = shift;
     my $password = shift;
@@ -1381,6 +1459,18 @@ sub StorePassword {
 
     return "password successfully saved";
 }
+
+=head2 ReadPassword
+
+Read password from secure storage
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        password string or undef
+
+=cut
 
 sub ReadPassword {
     my $hash = shift;
@@ -1407,27 +1497,38 @@ sub Rename {
     return;
 }
 
-### To export entire time table into iCal from @Sailor
+=head2 exportTT2iCal
+
+Export timetable data to iCal format
+
+    Parameters:
+        $hash - device hash reference
+    
+    Returns:
+        undef
+
+=cut
+
 sub exportTT2iCal {
     my $hash          = shift;
     my $name          = $hash->{NAME};
-	my $iCalPath      = AttrVal($name, "iCalPath", "");
+    my $iCalPath      = AttrVal($name, "iCalPath", "");
 
-	### Check ehether the Attribute iCalPath has been provided otherwise skip export
-	if ($iCalPath ne "") {
+    ### Check ehether the Attribute iCalPath has been provided otherwise skip export
+    if ($iCalPath ne "") {
 
-		my $iCalFileName;
-		my $iCalFileContent;
-		my @jsonTimeTable = $hash->{helper}{tt};
-		my $user          = AttrVal($name, "user"    , "NA");
+        my $iCalFileName;
+        my $iCalFileContent;
+        my @jsonTimeTable = $hash->{helper}{tt};
+        my $user          = AttrVal($name, "user"    , "NA");
 
-		### Get current timestamp
-		my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
-		$year = $year + 1900;
-		$mon++;
+        ### Get current timestamp
+        my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime();
+        $year = $year + 1900;
+        $mon++;
 
-		####START##### Transform json-Timetable in ical Timetable #####START####
-		$iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
+        ####START##### Transform json-Timetable in ical Timetable #####START####
+        $iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
 		foreach my $TimeTableArray ( @jsonTimeTable ) {
 
 			### Log Entry for debugging purposes
