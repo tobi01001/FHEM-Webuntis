@@ -214,7 +214,7 @@ sub Undefine {
     RemoveInternalTimer($hash);
     DevIo_CloseDev($hash);
     # Clear any running timer operations
-    delete $hash->{helper}{timerRunning};
+    clearTimerOperation($hash);
     return;
 }
 ###################################
@@ -458,7 +458,8 @@ sub wuTimer {
     # Check if another timer operation is already in progress
     if ( $hash->{helper}{timerRunning} ) {
         Log3 $name, LOG_WARNING, qq([$name]: Timer already running, skipping this execution);
-        my $next = int( gettimeofday() ) + AttrNum( $name, 'interval', 3600 );
+        # Use shorter recheck interval (30 seconds) instead of full interval to allow quicker recovery
+        my $next = int( gettimeofday() ) + 30;
         InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
         return;
     }
