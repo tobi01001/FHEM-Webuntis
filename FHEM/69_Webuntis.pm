@@ -344,11 +344,15 @@ sub parseSchoolYear {
     my ($s, $mi, $h, $d, $m, $y) = localtime();
     my $today = sprintf( "%.4d%.2d%.2d", $y + 1900, $m + 1, $d );
     my ($currentStart, $currentEnd, $currentName);
+    my $currentId;
     foreach my $year (@years) {
         if ($today ge $year->{startDate} && $today le $year->{endDate}) {
             $currentStart = $year->{startDate};
             $currentEnd = $year->{endDate};
             $currentName = $year->{name};
+            $currentId = $year->{id};
+            Log3 $name, LOG_DEBUG, "[$name] Current school year found: $currentName ($currentStart to $currentEnd)" ;
+            Log3 $name, LOG_DEBUG, "[$name] Current Year Data: ".Dumper($year) ;
             last;
         }
     }
@@ -357,10 +361,12 @@ sub parseSchoolYear {
         $currentStart = $years[-1]->{startDate};
         $currentEnd = $years[-1]->{endDate};
         $currentName = $years[-1]->{name};
+            $currentId = $years[-1]->{id};
     }
     readingsSingleUpdate( $hash, "schoolYearName", $currentName, 1 );
     readingsSingleUpdate( $hash, "schoolYearStart", $currentStart, 1 );
     readingsSingleUpdate( $hash, "schoolYearEnd", $currentEnd, 1 );
+    readingsSingleUpdate( $hash, "schoolYearID", $currentId, 1 );
     readingsSingleUpdate( $hash, "state", "schoolYear updated", 1 );
     processCmdQueue($hash);
     return;
@@ -616,7 +622,6 @@ sub getClass {
         "id"      => "FHEM",
         "jsonrpc" => "2.0",
         "method"  => "getKlassen",
-
     );
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
