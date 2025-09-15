@@ -1099,7 +1099,7 @@ sub isTransientError {
     
     return 0 if !defined($error);
     
-    # Network-related transient errors
+    # Network-related transient errors that should be retried
     return 1 if $error =~ /timeout/i;
     return 1 if $error =~ /connection.*(?:refused|reset|failed)/i;
     return 1 if $error =~ /network.*(?:unreachable|error)/i;
@@ -1120,6 +1120,7 @@ sub handleRetryOrFail {
     my ($hash, $error, $context) = @_;
     my $name = $hash->{NAME};
     
+    # Get retry configuration from attributes (with defaults)
     my $maxRetries = AttrNum($name, 'maxRetries', 3);
     my $retryDelay = AttrNum($name, 'retryDelay', 30);
     
@@ -1131,7 +1132,8 @@ sub handleRetryOrFail {
     # Check if error is transient and we haven't exceeded max retries
     if (isTransientError($error) && $hash->{helper}{retryCount} < $maxRetries) {
         $hash->{helper}{retryCount}++;
-        my $delay = $retryDelay * (2 ** ($hash->{helper}{retryCount} - 1)); # Exponential backoff
+        # Exponential backoff: 30s, 60s, 120s, 240s, etc.
+        my $delay = $retryDelay * (2 ** ($hash->{helper}{retryCount} - 1));
         
         Log3 $name, LOG_WARNING, "[$name] Transient error in $context (attempt $hash->{helper}{retryCount}/$maxRetries): $error - retrying in ${delay}s";
         readingsSingleUpdate($hash, "state", "Retry $hash->{helper}{retryCount}/$maxRetries: $error", 1);
@@ -1140,24 +1142,24 @@ sub handleRetryOrFail {
         my $next = int(gettimeofday()) + $delay;
         InternalTimer($next, 'FHEM::Webuntis::retryProcessing', $hash, 0);
         
-        return 1; # Handled - don't delete queue
+        return 1; # Handled - don't delete queue, preserve for retry
     } else {
-        # Permanent error or max retries exceeded
+        # Permanent error or max retries exceeded - give up
         my $retryInfo = $hash->{helper}{retryCount} > 0 ? " after $hash->{helper}{retryCount} retries" : "";
         Log3 $name, LOG_ERROR, "[$name] Permanent error in $context$retryInfo: $error";
         readingsSingleUpdate($hash, "state", "Error: $error$retryInfo", 1);
         
-        # Reset retry count and delete queue
+        # Reset retry count and delete queue - processing stops
         delete $hash->{helper}{retryCount};
         delete $hash->{helper}{cmdQueue};
         
-        return 0; # Not handled - queue deleted
+        return 0; # Not handled - queue deleted, processing stops
     }
 }
 
 sub retryProcessing {
     my $hash = shift;
-    # Continue processing the queue from where we left off
+    # Continue processing the queue from where we left off after retry delay
     processCmdQueue($hash);
     return;
 }
