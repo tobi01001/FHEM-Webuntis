@@ -94,7 +94,7 @@ my $EMPTY = q{};
 my $SPACE = q{ };
 my $COMMA = q{,};
 
-my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "disable" );
+my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "disable" );
 
 
 ## Import der FHEM Funktionen
@@ -318,26 +318,23 @@ sub parseSchoolYear {
     my $name = $hash->{NAME};
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $err, "parseSchoolYear");
         return;
     }
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getSchoolYear received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON received for SchoolYear" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON for SchoolYear", 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, "No JSON received for SchoolYear", "parseSchoolYear");
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear");
         return;
     }
+
+    # Success - reset retry count
+    delete $hash->{helper}{retryCount};
 
     my @years = @{ $json->{result} };
     # Find current school year (where today is between startDate and endDate)
@@ -422,6 +419,16 @@ sub Attr {
         if ( $attr eq 'schoolYearEnd' ) {
             if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
                 return qq (Attribute schoolYearEnd for $name has to be in format YYYY-MM-DD);
+            }
+        }
+        if ( $attr eq 'maxRetries' ) {
+            if ( $aVal !~ /^\d+$/ || $aVal < 0 || $aVal > 10 ) {
+                return qq (Attribute maxRetries for $name has to be a number between 0 and 10);
+            }
+        }
+        if ( $attr eq 'retryDelay' ) {
+            if ( $aVal !~ /^\d+$/ || $aVal < 5 || $aVal > 300 ) {
+                return qq (Attribute retryDelay for $name has to be a number between 5 and 300 seconds);
             }
         }
     }
@@ -552,19 +559,22 @@ sub parseLogin {
     my $header  = $param->{httpheader};
     my $cookies = getCookies( $hash, $header );
 
+    if ($err) {
+        return if handleRetryOrFail($hash, $err, "parseLogin");
+        return;
+    }
+
     my $json = safe_decode_json( $hash, $data );
     Log3( $name, LOG_RECEIVE, "login received $data");
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON after Login" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON after Login", 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, "No JSON after Login", "parseLogin");
         return;
     } elsif ( $json->{error} ) {
-        Log3( $name, LOG_ERROR, "[$name] $json->{error}{message}" );
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin");
         return;
     } else {
+        # Success - reset retry count
+        delete $hash->{helper}{retryCount};
 		
 		my $pType = $json->{result}->{personType} // "None";
 		if ($pType eq "12")
@@ -735,26 +745,23 @@ sub parseClass {
     my $name = $hash->{NAME};
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $err, "parseClass");
         return;
     }
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getClass received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON received for Class" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON for Class", 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, "No JSON received for Class", "parseClass");
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass");
         return;
     }
+
+    # Success - reset retry count
+    delete $hash->{helper}{retryCount};
 
     my @dat    = @{ $json->{result} };
     my @fields = ( "id", "name", "longName" );
@@ -813,26 +820,23 @@ sub parseTT {
     CommandDeleteReading( undef, "$name e_.*" );
 
     if ($err) {
-        Log3 $name, LOG_ERROR, "[$name] $err" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$err, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $err, "parseTT");
         return;
     }
     $data = latin1ToUtf8($data);
     Log3( $name, LOG_RECEIVE, "getTT received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        Log3 $name, LOG_ERROR, "[$name] No JSON received for Timetable" ;
-        readingsSingleUpdate( $hash, "state", "Error: No JSON for TT", 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, "No JSON received for Timetable", "parseTT");
         return;
     }
     if ( $json->{error} ) {
-        Log3 $name, LOG_ERROR, "[$name] $json->{error}{message}" ;
-        readingsSingleUpdate( $hash, "state", "Error: ".$json->{error}{message}, 1 );
-        delete $hash->{helper}{cmdQueue};
+        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT");
         return;
     }
+
+    # Success - reset retry count
+    delete $hash->{helper}{retryCount};
 
     #Log3 ($name, LOG_ERROR, Dumper(${$json->{result}}[0]));
     my @dat = @{ $json->{result} };
@@ -1087,6 +1091,74 @@ sub processCmdQueue {
     my $gv = $cv->GV;
     Log3 $name, LOG_RECEIVE, "[$name] Processing Queue: " . $gv->NAME;
     $cmd->($hash);
+    return;
+}
+
+sub isTransientError {
+    my $error = shift;
+    
+    return 0 if !defined($error);
+    
+    # Network-related transient errors
+    return 1 if $error =~ /timeout/i;
+    return 1 if $error =~ /connection.*(?:refused|reset|failed)/i;
+    return 1 if $error =~ /network.*(?:unreachable|error)/i;
+    return 1 if $error =~ /temporary.*failure/i;
+    return 1 if $error =~ /service.*unavailable/i;
+    return 1 if $error =~ /socket.*error/i;
+    return 1 if $error =~ /dns.*(?:error|failure)/i;
+    return 1 if $error =~ /502|503|504/; # HTTP server errors that are often transient
+    
+    # JSON parsing errors from incomplete/corrupted data could be transient
+    return 1 if $error =~ /malformed JSON/i;
+    return 1 if $error =~ /unexpected end of JSON/i;
+    
+    return 0; # Default to permanent error for safety
+}
+
+sub handleRetryOrFail {
+    my ($hash, $error, $context) = @_;
+    my $name = $hash->{NAME};
+    
+    my $maxRetries = AttrNum($name, 'maxRetries', 3);
+    my $retryDelay = AttrNum($name, 'retryDelay', 30);
+    
+    # Initialize retry count if not present
+    if (!defined($hash->{helper}{retryCount})) {
+        $hash->{helper}{retryCount} = 0;
+    }
+    
+    # Check if error is transient and we haven't exceeded max retries
+    if (isTransientError($error) && $hash->{helper}{retryCount} < $maxRetries) {
+        $hash->{helper}{retryCount}++;
+        my $delay = $retryDelay * (2 ** ($hash->{helper}{retryCount} - 1)); # Exponential backoff
+        
+        Log3 $name, LOG_WARNING, "[$name] Transient error in $context (attempt $hash->{helper}{retryCount}/$maxRetries): $error - retrying in ${delay}s";
+        readingsSingleUpdate($hash, "state", "Retry $hash->{helper}{retryCount}/$maxRetries: $error", 1);
+        
+        # Schedule retry with exponential backoff
+        my $next = int(gettimeofday()) + $delay;
+        InternalTimer($next, 'FHEM::Webuntis::retryProcessing', $hash, 0);
+        
+        return 1; # Handled - don't delete queue
+    } else {
+        # Permanent error or max retries exceeded
+        my $retryInfo = $hash->{helper}{retryCount} > 0 ? " after $hash->{helper}{retryCount} retries" : "";
+        Log3 $name, LOG_ERROR, "[$name] Permanent error in $context$retryInfo: $error";
+        readingsSingleUpdate($hash, "state", "Error: $error$retryInfo", 1);
+        
+        # Reset retry count and delete queue
+        delete $hash->{helper}{retryCount};
+        delete $hash->{helper}{cmdQueue};
+        
+        return 0; # Not handled - queue deleted
+    }
+}
+
+sub retryProcessing {
+    my $hash = shift;
+    # Continue processing the queue from where we left off
+    processCmdQueue($hash);
     return;
 }
 
