@@ -34,9 +34,9 @@ package main;
 use strict;
 use warnings;
 
-use constant WEBUNTIS_VERSION => "0.3.00";
-
 package FHEM::Webuntis;
+
+use constant WEBUNTIS_VERSION => "0.3.00";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -71,7 +71,7 @@ use Cwd;
 use Encode;
 
 #
-my $version = "0.2.01";
+my $version = WEBUNTIS_VERSION;
 
 my $missingModul = '';
 eval 'use Digest::SHA qw(sha256);1;' or $missingModul .= 'Digest::SHA ';
