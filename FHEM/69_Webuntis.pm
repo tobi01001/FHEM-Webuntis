@@ -76,7 +76,73 @@ my $version = WEBUNTIS_VERSION;
 my $missingModul = '';
 eval 'use Digest::SHA qw(sha256);1;' or $missingModul .= 'Digest::SHA ';
 
-#eval 'use Protocol::WebSocket::Client;1' or $missingModul .= 'Protocol::WebSocket::Client ';
+# Readonly is recommended, but requires additional module
+use constant {
+    WU_MINIMUM_INTERVAL => 300,
+    LOG_CRITICAL        => 0,
+    LOG_ERROR           => 1,
+    LOG_WARNING         => 2,
+    LOG_SEND            => 3,
+    LOG_RECEIVE         => 4,
+    LOG_DEBUG           => 5,
+};
+my $EMPTY = q{};
+my $SPACE = q{ };
+my $COMMA = q{,};
+
+my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "considerTimeOfDay:yes,no", "disable" );
+
+
+## Import der FHEM Funktionen
+BEGIN {
+    GP_Import(
+        qw(
+          AttrVal
+          AttrNum
+          CommandDeleteReading
+          InternalTimer
+          InternalVal
+          readingsSingleUpdate
+          readingsBulkUpdate
+          readingsBulkUpdateIfChanged
+          readingsBeginUpdate
+          readingsDelete
+          readingsEndUpdate
+          ReadingsNum
+          ReadingsVal
+          RemoveInternalTimer
+          Log3
+          gettimeofday
+          deviceEvents
+          time_str2num
+          latin1ToUtf8
+          IsDisabled
+          HttpUtils_NonblockingGet
+          HttpUtils_BlockingGet
+          DevIo_IsOpen
+          DevIo_CloseDev
+          DevIo_OpenDev
+          DevIo_SimpleRead
+          DevIo_SimpleWrite
+          init_done
+          readingFnAttributes
+          setKeyValue
+          getKeyValue
+          getUniqueId
+          defs
+          s
+          MINUTESECONDS
+          makeReadingName
+          )
+    );
+}
+
+#-- Export to main context with different name
+GP_Export(
+    qw(
+      Initialize
+      )
+);
 
 # Taken from RichardCZ https://gl.petatech.eu/root/HomeBot/snippets/2
 my $got_module = use_module_prio(
@@ -179,74 +245,6 @@ sub is_exception_in_future {
     my $now = DateTime->now;
     return $dt > $now;
 }
-
-# Readonly is recommended, but requires additional module
-use constant {
-    WU_MINIMUM_INTERVAL => 300,
-    LOG_CRITICAL        => 0,
-    LOG_ERROR           => 1,
-    LOG_WARNING         => 2,
-    LOG_SEND            => 3,
-    LOG_RECEIVE         => 4,
-    LOG_DEBUG           => 5,
-};
-my $EMPTY = q{};
-my $SPACE = q{ };
-my $COMMA = q{,};
-
-my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "considerTimeOfDay:yes,no", "disable" );
-
-
-## Import der FHEM Funktionen
-BEGIN {
-    GP_Import(
-        qw(
-          AttrVal
-          AttrNum
-          CommandDeleteReading
-          InternalTimer
-          InternalVal
-          readingsSingleUpdate
-          readingsBulkUpdate
-          readingsBulkUpdateIfChanged
-          readingsBeginUpdate
-          readingsDelete
-          readingsEndUpdate
-          ReadingsNum
-          ReadingsVal
-          RemoveInternalTimer
-          Log3
-          gettimeofday
-          deviceEvents
-          time_str2num
-          latin1ToUtf8
-          IsDisabled
-          HttpUtils_NonblockingGet
-          HttpUtils_BlockingGet
-          DevIo_IsOpen
-          DevIo_CloseDev
-          DevIo_OpenDev
-          DevIo_SimpleRead
-          DevIo_SimpleWrite
-          init_done
-          readingFnAttributes
-          setKeyValue
-          getKeyValue
-          getUniqueId
-          defs
-          s
-          MINUTESECONDS
-          makeReadingName
-          )
-    );
-}
-
-#-- Export to main context with different name
-GP_Export(
-    qw(
-      Initialize
-      )
-);
 
 
 sub Initialize {
