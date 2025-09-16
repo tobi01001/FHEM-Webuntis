@@ -242,7 +242,7 @@ sub is_exception_in_future {
     }
     
     # Compare with current time
-    my $now = DateTime->now;
+    my $now = DateTime->now(time_zone => 'local');
     return $dt > $now;
 }
 
