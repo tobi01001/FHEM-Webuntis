@@ -1,3 +1,12 @@
+2025-09-16 0.3.01
+- Merge pull request #23 from tobi01001/copilot/fix-22
+- Fix time zone handling in is_exception_in_future method
+- Refactor constants and import functions for improved readability and organization
+- Refactor version handling to use constant for WEBUNTIS_VERSION
+- Add considerTimeOfDay attribute to filter exceptions by time
+- Initial plan
+- Update documentation, improve logging, and automate changelog management
+
 2025-09-15 0.3.00
 - Merge pull request #21 from tobi01001/copilot/fix-7-2
 - Remove passwordValid readings - keep only internal helper values

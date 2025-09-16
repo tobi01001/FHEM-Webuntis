@@ -21,6 +21,8 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.01 - 2024-10-15 Improve password update handling with detailed logging and state updates, tobi
+#   0.3.00 - 2024-10-14 Bugfixes and Optimizations, new Attribute to consider time of day for exceptions, tobi
 #   0.2.01 - 2024-09-02 iCal Erzeugung, andies
 #   0.2.00 - 2023-10-27 Bugfixes andd Optimizations, new Attribute to exclude subjects
 #   0.1.00 - 2023-02-26 Initial Release
@@ -36,7 +38,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.00";
+use constant WEBUNTIS_VERSION => "0.3.01";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -352,7 +354,18 @@ sub Set {
             my $next = int( gettimeofday() ) + 1;
             InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
         }
-        return $err;
+
+        if ($err ne "password successfully saved") { 
+            Log3 $name, LOG_ERROR, "[$name] Error saving password: $err";
+            readingsSingleUpdate( $hash, "lastError", $err, 1 );
+            readingsSingleUpdate( $hash, "state", "error saving password", 1 );
+            return $err;
+        } else {
+            Log3 $name, LOG_DEBUG, "[$name] Password successfully updated";
+            readingsSingleUpdate( $hash, "lastError", "", 1 ); # Clear any previous error
+            readingsSingleUpdate( $hash, "state", "password updated", 1 );
+            return undef;
+        }
 
     }
     return qq (Unknown argument $cmd, choose one of password);
