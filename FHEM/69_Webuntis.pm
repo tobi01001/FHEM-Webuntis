@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.00 - 2024-06-10 Bugfixes and Optimizations, new Attribute to set start day of timetable, tobi
 #   0.2.01 - 2024-09-02 iCal Erzeugung, andies
 #   0.2.00 - 2023-10-27 Bugfixes andd Optimizations, new Attribute to exclude subjects
 #   0.1.00 - 2023-02-26 Initial Release
@@ -548,7 +549,7 @@ sub parseSchoolYear {
             $currentName = $year->{name};
             $currentId = $year->{id};
             Log3 $name, LOG_DEBUG, "[$name] Current school year found: $currentName ($currentStart to $currentEnd)" ;
-            Log3 $name, LOG_DEBUG, "[$name] Current Year Data: ".Dumper($year) ;
+            #Log3 $name, LOG_DEBUG, "[$name] Current Year Data: ".Dumper($year) ;
             last;
         }
     }
@@ -807,9 +808,9 @@ sub login {
     # Log full data at debug level with password redacted
     my $debug_body = { %body };
     $debug_body->{params}{password} = "***REDACTED***" if exists $debug_body->{params}{password};
-    Log3($name, LOG_DEBUG, "login params: ".Dumper($debug_body));
-    Log3($name,LOG_DEBUG,"login params: ".Dumper(\%body));
-    Log3($name,LOG_DEBUG,"login header: ".Dumper($param));
+    #Log3($name, LOG_DEBUG, "login params: ".Dumper($debug_body));
+    #Log3($name,LOG_DEBUG,"login params: ".Dumper(\%body));
+    #Log3($name,LOG_DEBUG,"login header: ".Dumper($param));
     my ( $err, $data ) = HttpUtils_NonblockingGet($param);
 
 }
@@ -1118,6 +1119,8 @@ sub _handleTimetableResponse {
         return;
     }
     
+    
+
     return $json;
 }
 
@@ -1188,27 +1191,19 @@ Returns:
 sub _checkException {
     my ($hash, $tt_entry, $exception_indicators) = @_;
     my $name = $hash->{NAME};
-    
+    Log3 $name, LOG_DEBUG, "Checking entry for exceptions (presence only): ".Dumper($tt_entry);
+    Log3 $name, LOG_DEBUG, "Exception indicators: ".Dumper($exception_indicators);
     return 0 unless $exception_indicators && @$exception_indicators;
-    
+
     for my $indicator (@$exception_indicators) {
         next if $indicator eq '';
-        
-        # Check various fields for exception indicators
-        for my $field (qw(code info lstext lstype substText)) {
-            if (exists $tt_entry->{$field} && defined $tt_entry->{$field}) {
-                my $value = $tt_entry->{$field};
-                if (ref($value) eq 'ARRAY') {
-                    for my $item (@$value) {
-                        return 1 if defined $item && $item =~ /\Q$indicator\E/i;
-                    }
-                } else {
-                    return 1 if $value =~ /\Q$indicator\E/i;
-                }
-            }
+        # If the field is present in the entry, it's an exception
+        if (exists $tt_entry->{$indicator} && defined $tt_entry->{$indicator}) {
+            Log3 $name, LOG_DEBUG, "Exception detected: field '$indicator' is present";
+            return 1;
         }
     }
-    
+    Log3 $name, LOG_DEBUG, "No exception indicators present for entry.";
     return 0;
 }
 
@@ -1374,8 +1369,15 @@ sub parseTT {
     my $minDate = 99999999;
     my $maxDate = 0;
 
+    Log3 $name, LOG_DEBUG, "Processing ".scalar(@dat)." timetable entries";
+
     readingsBeginUpdate($hash);
 
+
+    # Build exception lists for today and tomorrow
+    my $lists = { rToday => '', rTomorrow => '' };
+    my $today_str = format_date_for_api(DateTime->now);
+    my $tomorrow_str = format_date_for_api(DateTime->now->add(days => 1));
     # Process each timetable entry
     for my $tt (@dat) {
         # Track date range
@@ -1389,8 +1391,19 @@ sub parseTT {
         # Check for exceptions
         my $isException = _checkException($hash, $tt, \@exceptionIndicators);
         
+        Log3 $name, LOG_DEBUG, "Entry date: $tt->{date}, isException: $isException";
+
         if ($isException) {
             $exceptionCount++;
+        }
+
+        
+
+        if ($tt->{date} eq $today_str) {
+            $lists->{rToday} .= ($lists->{rToday} ? $COMMA : '') . ($tt->{startTime} // '');
+        }
+        if ($tt->{date} eq $tomorrow_str) {
+            $lists->{rTomorrow} .= ($lists->{rTomorrow} ? $COMMA : '') . ($tt->{startTime} // '');
         }
 
         my $date_str = format_date_for_display($tt->{date});
@@ -1443,17 +1456,46 @@ sub parseTT {
         readingsBulkUpdate($hash, $readingName . "_teacher", $teacher) if $teacher;
 
         # Apply exception filter for exceptions
-        if ($isException && $exceptionFilter) {
-            if (($tt->{lstext} && $tt->{lstext} =~ m{\Q$exceptionFilter\E}i) ||
-                ($tt->{lstype} && $tt->{lstype} =~ m{\Q$exceptionFilter\E}i) ||
-                ($tt->{substText} && $tt->{substText} =~ m{\Q$exceptionFilter\E}i)) {
-                next;
+        # Write exception readings if this is an exception and passes filter
+        if ($isException) {
+            # If exceptionFilter is set, skip if any field matches the filter
+            if ($exceptionFilter) {
+                if (($tt->{lstext} && $tt->{lstext} =~ m{\Q$exceptionFilter\E}i) ||
+                    ($tt->{lstype} && $tt->{lstype} =~ m{\Q$exceptionFilter\E}i) ||
+                    ($tt->{substText} && $tt->{substText} =~ m{\Q$exceptionFilter\E}i)) {
+                    next;
+                }
             }
+            # Write exception reading (numbered)
+            my $rn = ::makeReadingName("e_" . sprintf("%02d", $exceptionCount));
+            my $reading_value = join(',', 
+            "date=$tt->{date}",
+            "startTime=$tt->{startTime}",
+            "endTime=$tt->{endTime}",
+            (defined $subject ? "subject=$subject" : ()),
+            (defined $room ? "room=$room" : ()),
+            (defined $teacher ? "teacher=$teacher" : ()),
+            (defined $tt->{lstype} ? "lstype=$tt->{lstype}" : ()),
+            (defined $tt->{lstext} ? "lstext=$tt->{lstext}" : ()),
+            (defined $tt->{substText} ? "substText=$tt->{substText}" : ()),
+            (defined $tt->{info} ? "info=$tt->{info}" : ()),
+            (defined $tt->{code} ? "code=$tt->{code}" : ()),
+            );
+            readingsBulkUpdate($hash, $rn, $reading_value);
         }
     }
 
     $html .= "</table></body></html>";
+    
 
+    
+
+    readingsBulkUpdate($hash, "exceptionToday", join($COMMA, uniq(split($COMMA, $lists->{rToday}))));
+    readingsBulkUpdate($hash, "exceptionTomorrow", join($COMMA, uniq(split($COMMA, $lists->{rTomorrow}))));
+    readingsBulkUpdate($hash, "state", "processing done");
+
+    # Optionally export to iCal if enabled
+    exportTT2iCal($hash);
     # Update summary readings
     readingsBulkUpdate($hash, "timetable", $html);
     readingsBulkUpdate($hash, "exceptionCount", $exceptionCount);
@@ -1976,7 +2018,6 @@ Returns:
 =cut
 
 sub exportTT2iCal {
-sub exportTT2iCal {
     my $hash = shift;
     my $name = $hash->{NAME};
     my $iCalPath = AttrVal($name, "iCalPath", "");
@@ -2019,7 +2060,8 @@ sub exportTT2iCal {
     }
 
     return;
-}1;
+}
+1;
 
 
 =pod
@@ -2030,82 +2072,85 @@ sub exportTT2iCal {
 
 <a name="Webuntis"></a>
 <div>
-<ul>
-The module reads timetable data from Webuntis
-<a name='WebuntisDefine'></a>
-        <b>Define</b>
-        <ul>
-define the module with <code>define <name> Webuntis </code>. After that, set your password <code>set <name> password <password></code>
-</ul>
-<a name='WebuntisGet'></a>
-        <b>Get</b>
-        <ul>
-<li><a name='timetable'></a>reads the timetable data from Webuntis</li>
-<li><a name='retrieveClasses'></a>reads the classes from Webuntis</li>
-<li><a name='Classes'></a>display retrieved Classes</li>
-<li><a name='passwordStatus'></a>checks current password validation status</li>
- </ul>
-<a name='WebuntisSet'></a>
-        <b>Set</b>
-        <ul>
-<li><a name='password'></a>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
- </ul>
-<a name='WebuntisAttr'></a>
-        <b>Attributes</b>
-        <ul>
-<li><a name='class'>the class for which timetable data should be retrieved</a></li>
-<li><a name='school'>your school</a></li>
-<li><a name='server'>something like https://server.webuntis.com</a></li>
-<li><a name='user'>your username</a></li>
-<li><a name='exceptionIndicator'>Which fields should be populated to create exception readings</a></li>
-<li><a name='exceptionFilters'>Which field values should not be considered as an exception</a></li>
-<li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
-<li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
-<li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
-<li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
-            </ul>
-   </ul>
+	<ul>
+		The module reads timetable data from Webuntis
+		<a name='WebuntisDefine'></a>
+		<b>Define</b>
+		<ul>
+			define the module with <code>define <name> Webuntis </code>. After that, set your password <code>set <name> password <password></code>
+		</ul>
+		<a name='WebuntisGet'></a>
+		<b>Get</b>
+		<ul>
+			<li><a name='timetable'></a>reads the timetable data from Webuntis</li>
+			<li><a name='retrieveClasses'></a>reads the classes from Webuntis</li>
+			<li><a name='Classes'></a>display retrieved Classes</li>
+			<li><a name='passwordStatus'></a>checks current password validation status</li>
+		</ul>
+		<a name='WebuntisSet'></a>
+		<b>Set</b>
+		<ul>
+			<li><a name='password'></a>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
+		</ul>
+		<a name='WebuntisAttr'></a>
+		<b>Attributes</b>
+		<ul>
+			<li><a name='class'></a>the class for which timetable data should be retrieved</li>
+			<li><a name='school'></a>your school</li>
+			<li><a name='server'></a>something like https://server.webuntis.com</li>
+			<li><a name='user'></a>your username</li>
+			<li><a name='exceptionIndicator'></a>Which fields should be populated to create exception readings</li>
+			<li><a name='exceptionFilters'></a>Which field values should not be considered as an exception</li>
+			<li><a name='excludeSubjects'></a>Which subjects should be ignored</li>
+			<li><a name='interval'></a>polling interval in seconds (defaults to 3600)</li>
+			<li><a name='studentID'></a>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</li>
+			<li><a name='timeTableMode'></a>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</li>
+		</ul>
+	</ul>
 </div>
+
 =end html
+
 =begin html_DE
 
 <a name=Webuntis></a>
 <div>
-<ul>
-Das Modul liest Stundenplan-Daten von Webuntis aus
-<a name='WebuntisDefine'></a>
-        <b>Define</b>
+	<ul>
+		Das Modul liest Stundenplan-Daten von Webuntis aus
+		<a name='WebuntisDefine'></a>
+		<b>Define</b>
         <ul>
-define the module with <code>define <name> Webuntis </code>. After that, set your password <code>set <name> password <password></code>
-</ul>
-<a name='WebuntisGet'></a>
+			define the module with <code>define <name> Webuntis </code>. After that, set your password <code>set <name> password <password></code>
+		</ul>
+		<a name='WebuntisGet'></a>
         <b>Get</b>
         <ul>
-<li><a name='timetable'>reads the timetable data from Webuntis</a></li>
-<li><a name='retrieveClasses'>reads theclasses from Webuntis</a></li>
-<li><a name='Classes'>display retrieved Classes</a></li>
-<li><a name='passwordStatus'>checks current password validation status</a></li>
- </ul>
-<a name='WebuntisSet'></a>
+			<li><a name='timetable'></a>reads the timetable data from Webuntis</li>
+			<li><a name='retrieveClasses'></a>reads theclasses from Webuntis</li>
+			<li><a name='Classes'></a>display retrieved Classes</li>
+			<li><a name='passwordStatus'></a>checks current password validation status</li>
+		</ul>
+		<a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</a></li>
- </ul>
-<a name='WebuntisAttr'></a>
+			<li><a name='password'></a>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
+		</ul>
+		<a name='WebuntisAttr'></a>
         <b>Attributes</b>
         <ul>
-<li><a name='class'>the class for which timetable data should be retrieved</a></li>
-<li><a name='school'>your school</a></li>
-<li><a name='server'>something like https://server.webuntis.com</a></li>
-<li><a name='user'>your username</a></li>
-<li><a name='exceptionIndicator'>Which fields should be populated to create exception readings</a></li>
-<li><a name='exceptionFilters'>Which field values should not be considered as an exception</a></li>
-<li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
-<li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
-<li><a name='iCalPath'>path to write a iCal to - must exist and be writeable by fhem. gets written after getTimeTable </a></li>
-<li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
-<li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
-            </ul>
+			<li><a name='class'></a>the class for which timetable data should be retrieved</li>
+			<li><a name='school'></a>your school</li>
+			<li><a name='server'></a>something like https://server.webuntis.com</li>
+			<li><a name='user'></a>your username</li>
+			<li><a name='exceptionIndicator'></a>Which fields should be populated to create exception readings</li>
+			<li><a name='exceptionFilters'></a>Which field values should not be considered as an exception</li>
+			<li><a name='excludeSubjects'></a>Which subjects should be ignored</li>
+			<li><a name='interval'></a>polling interval in seconds (defaults to 3600)</li>
+			<li><a name='iCalPath'></a>path to write a iCal to - must exist and be writeable by fhem. gets written after getTimeTable</li>
+			<li><a name='studentID'></a>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</li>
+			<li><a name='timeTableMode'></a>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</li>
+        </ul>
    </ul>
 </div>
+
 =end html_DE
