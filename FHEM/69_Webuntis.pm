@@ -34,9 +34,9 @@ package main;
 use strict;
 use warnings;
 
-use constant WEBUNTIS_VERSION => "0.3.00";
-
 package FHEM::Webuntis;
+
+use constant WEBUNTIS_VERSION => "0.3.00";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -71,12 +71,78 @@ use Cwd;
 use Encode;
 
 #
-my $version = "0.2.01";
+my $version = WEBUNTIS_VERSION;
 
 my $missingModul = '';
 eval 'use Digest::SHA qw(sha256);1;' or $missingModul .= 'Digest::SHA ';
 
-#eval 'use Protocol::WebSocket::Client;1' or $missingModul .= 'Protocol::WebSocket::Client ';
+# Readonly is recommended, but requires additional module
+use constant {
+    WU_MINIMUM_INTERVAL => 300,
+    LOG_CRITICAL        => 0,
+    LOG_ERROR           => 1,
+    LOG_WARNING         => 2,
+    LOG_SEND            => 3,
+    LOG_RECEIVE         => 4,
+    LOG_DEBUG           => 5,
+};
+my $EMPTY = q{};
+my $SPACE = q{ };
+my $COMMA = q{,};
+
+my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "considerTimeOfDay:yes,no", "disable" );
+
+
+## Import der FHEM Funktionen
+BEGIN {
+    GP_Import(
+        qw(
+          AttrVal
+          AttrNum
+          CommandDeleteReading
+          InternalTimer
+          InternalVal
+          readingsSingleUpdate
+          readingsBulkUpdate
+          readingsBulkUpdateIfChanged
+          readingsBeginUpdate
+          readingsDelete
+          readingsEndUpdate
+          ReadingsNum
+          ReadingsVal
+          RemoveInternalTimer
+          Log3
+          gettimeofday
+          deviceEvents
+          time_str2num
+          latin1ToUtf8
+          IsDisabled
+          HttpUtils_NonblockingGet
+          HttpUtils_BlockingGet
+          DevIo_IsOpen
+          DevIo_CloseDev
+          DevIo_OpenDev
+          DevIo_SimpleRead
+          DevIo_SimpleWrite
+          init_done
+          readingFnAttributes
+          setKeyValue
+          getKeyValue
+          getUniqueId
+          defs
+          s
+          MINUTESECONDS
+          makeReadingName
+          )
+    );
+}
+
+#-- Export to main context with different name
+GP_Export(
+    qw(
+      Initialize
+      )
+);
 
 # Taken from RichardCZ https://gl.petatech.eu/root/HomeBot/snippets/2
 my $got_module = use_module_prio(
@@ -146,73 +212,39 @@ sub format_date_for_display {
     return $dt->strftime("%d.%m.%Y");
 }
 
-# Readonly is recommended, but requires additional module
-use constant {
-    WU_MINIMUM_INTERVAL => 300,
-    LOG_CRITICAL        => 0,
-    LOG_ERROR           => 1,
-    LOG_WARNING         => 2,
-    LOG_SEND            => 3,
-    LOG_RECEIVE         => 4,
-    LOG_DEBUG           => 5,
-};
-my $EMPTY = q{};
-my $SPACE = q{ };
-my $COMMA = q{,};
-
-my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "disable" );
-
-
-## Import der FHEM Funktionen
-BEGIN {
-    GP_Import(
-        qw(
-          AttrVal
-          AttrNum
-          CommandDeleteReading
-          InternalTimer
-          InternalVal
-          readingsSingleUpdate
-          readingsBulkUpdate
-          readingsBulkUpdateIfChanged
-          readingsBeginUpdate
-          readingsDelete
-          readingsEndUpdate
-          ReadingsNum
-          ReadingsVal
-          RemoveInternalTimer
-          Log3
-          gettimeofday
-          deviceEvents
-          time_str2num
-          latin1ToUtf8
-          IsDisabled
-          HttpUtils_NonblockingGet
-          HttpUtils_BlockingGet
-          DevIo_IsOpen
-          DevIo_CloseDev
-          DevIo_OpenDev
-          DevIo_SimpleRead
-          DevIo_SimpleWrite
-          init_done
-          readingFnAttributes
-          setKeyValue
-          getKeyValue
-          getUniqueId
-          defs
-          s
-          MINUTESECONDS
-          makeReadingName
-          )
-    );
+sub is_exception_in_future {
+    my ($date_string, $end_time_string) = @_;
+    return 1 unless defined $date_string && defined $end_time_string;
+    
+    # Parse the date (YYYYMMDD format)
+    my $dt = parse_date_from_api($date_string);
+    return 1 unless $dt;
+    
+    # Parse the time (HHMM or HMM format) and add to the date
+    my ($hour, $minute);
+    if (length($end_time_string) >= 4) {
+        $hour = substr($end_time_string, 0, 2);
+        $minute = substr($end_time_string, 2, 2);
+    } elsif (length($end_time_string) == 3) {
+        $hour = "0" . substr($end_time_string, 0, 1);
+        $minute = substr($end_time_string, 1, 2);
+    } else {
+        return 1; # If time format is invalid, include the exception
+    }
+    
+    eval {
+        $dt->set_hour($hour);
+        $dt->set_minute($minute);
+        $dt->set_second(0);
+    };
+    if ($@) {
+        return 1; # If parsing fails, include the exception
+    }
+    
+    # Compare with current time
+    my $now = DateTime->now(time_zone => 'local');
+    return $dt > $now;
 }
-
-#-- Export to main context with different name
-GP_Export(
-    qw(
-      Initialize
-      )
-);
 
 
 sub Initialize {
@@ -1056,6 +1088,12 @@ sub parseTT {
 					if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/,@exSu)) {
 						next;
 					}
+					# Filter exceptions by time if considerTimeOfDay is enabled
+					if (AttrVal($name, "considerTimeOfDay", "no") eq "yes") {
+						if (!is_exception_in_future($t->{date}, $t->{endTime})) {
+							next;
+						}
+					}
 					$exc = 1;
 					$exCnt++;
 					$lastE = $t;
@@ -1639,6 +1677,7 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='exceptionFilters'>Which field values should not be considered as an exception</a></li>
 <li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
 <li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
+<li><a name='considerTimeOfDay'>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</a></li>
 <li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
 <li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
             </ul>
@@ -1681,6 +1720,7 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
 <li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
 <li><a name='iCalPath'>path to write a iCal to - must exist and be writeable by fhem. gets written after getTimeTable </a></li>
+<li><a name='considerTimeOfDay'>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</a></li>
 <li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
 <li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
             </ul>
