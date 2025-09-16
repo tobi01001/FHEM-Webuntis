@@ -1671,8 +1671,9 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
         <ul>
 <li><a name='timetable'></a>reads the timetable data from Webuntis</li>
 <li><a name='retrieveClasses'></a>reads the classes from Webuntis</li>
-<li><a name='Classes'></a>display retrieved Classes</li>
+<li><a name='classes'></a>display retrieved Classes</li>
 <li><a name='passwordStatus'></a>checks current password validation status</li>
+<li><a name='schoolYear'></a>retrieve school year boundaries from server</li>
  </ul>
 <a name='WebuntisSet'></a>
         <b>Set</b>
@@ -1682,60 +1683,77 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
         <ul>
-<li><a name='class'>the class for which timetable data should be retrieved</a></li>
-<li><a name='school'>your school</a></li>
-<li><a name='server'>something like https://server.webuntis.com</a></li>
-<li><a name='user'>your username</a></li>
-<li><a name='exceptionIndicator'>Which fields should be populated to create exception readings</a></li>
-<li><a name='exceptionFilters'>Which field values should not be considered as an exception</a></li>
-<li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
-<li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
-<li><a name='considerTimeOfDay'>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</a></li>
-<li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
-<li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
+<li><a name='class'></a>the class for which timetable data should be retrieved</li>
+<li><a name='school'></a>your school</li>
+<li><a name='server'></a>something like https://server.webuntis.com</li>
+<li><a name='user'></a>your username</li>
+<li><a name='exceptionIndicator'></a>Which fields should be populated to create exception readings</li>
+<li><a name='exceptionFilter'></a>Which field values should not be considered as an exception</li>
+<li><a name='excludeSubjects'></a>Which subjects should be ignored</li>
+<li><a name='iCalPath'></a>path to write a iCal to - must exist and be writeable by fhem. gets written after getTimeTable</li>
+<li><a name='interval'></a>polling interval in seconds (defaults to 3600)</li>
+<li><a name='DaysTimetable'></a>number of days to retrieve timetable data for</li>
+<li><a name='studentID'></a>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</li>
+<li><a name='timeTableMode'></a>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</li>
+<li><a name='startDayTimeTable'></a>defines which day to start retrieving timetable data from (Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday)</li>
+<li><a name='schoolYearStart'></a>start date of the school year (YYYYMMDD format)</li>
+<li><a name='schoolYearEnd'></a>end date of the school year (YYYYMMDD format)</li>
+<li><a name='maxRetries'></a>maximum number of retry attempts for failed requests (defaults to reasonable value)</li>
+<li><a name='retryDelay'></a>delay between retry attempts in seconds (defaults to reasonable value)</li>
+<li><a name='considerTimeOfDay'></a>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</li>
+<li><a name='disable'></a>disable the module (yes/no)</li>
             </ul>
    </ul>
 </div>
 =end html
+
 =begin html_DE
 
-<a name=Webuntis></a>
+<a name="Webuntis"></a>
 <div>
 <ul>
 Das Modul liest Stundenplan-Daten von Webuntis aus
 <a name='WebuntisDefine'></a>
         <b>Define</b>
         <ul>
-define the module with <code>define <name> Webuntis </code>. After that, set your password <code>set <name> password <password></code>
+Definiere das Modul mit <code>define <name> Webuntis </code>. Danach setze dein Passwort <code>set <name> password <password></code>
 </ul>
 <a name='WebuntisGet'></a>
         <b>Get</b>
         <ul>
-<li><a name='timetable'>reads the timetable data from Webuntis</a></li>
-<li><a name='retrieveClasses'>reads theclasses from Webuntis</a></li>
-<li><a name='Classes'>display retrieved Classes</a></li>
-<li><a name='passwordStatus'>checks current password validation status</a></li>
+<li><a name='timetable'></a>liest die Stundenplan-Daten von Webuntis</li>
+<li><a name='retrieveClasses'></a>liest die Klassen von Webuntis</li>
+<li><a name='classes'></a>zeigt abgerufene Klassen an</li>
+<li><a name='passwordStatus'></a>überprüft aktuellen Passwort-Validierungsstatus</li>
+<li><a name='schoolYear'></a>ruft Schuljahr-Grenzen vom Server ab</li>
  </ul>
 <a name='WebuntisSet'></a>
         <b>Set</b>
         <ul>
-<li><a name='password'>set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</a></li>
+<li><a name='password'></a>setze dein WebUntis Passwort. Erforderlich bei der ersten Einrichtung und wenn sich dein Passwort in WebUntis ändert. Das Modul erkennt Authentifizierungsfehler und fordert dich auf, es bei Bedarf zu aktualisieren.</li>
  </ul>
 <a name='WebuntisAttr'></a>
         <b>Attributes</b>
         <ul>
-<li><a name='class'>the class for which timetable data should be retrieved</a></li>
-<li><a name='school'>your school</a></li>
-<li><a name='server'>something like https://server.webuntis.com</a></li>
-<li><a name='user'>your username</a></li>
-<li><a name='exceptionIndicator'>Which fields should be populated to create exception readings</a></li>
-<li><a name='exceptionFilters'>Which field values should not be considered as an exception</a></li>
-<li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
-<li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
-<li><a name='iCalPath'>path to write a iCal to - must exist and be writeable by fhem. gets written after getTimeTable </a></li>
-<li><a name='considerTimeOfDay'>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</a></li>
-<li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
-<li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
+<li><a name='class'></a>die Klasse, für die Stundenplan-Daten abgerufen werden sollen</li>
+<li><a name='school'></a>deine Schule</li>
+<li><a name='server'></a>etwas wie https://server.webuntis.com</li>
+<li><a name='user'></a>dein Benutzername</li>
+<li><a name='exceptionIndicator'></a>Welche Felder ausgefüllt werden sollen, um Ausnahme-Readings zu erstellen</li>
+<li><a name='exceptionFilter'></a>Welche Feldwerte nicht als Ausnahme betrachtet werden sollen</li>
+<li><a name='excludeSubjects'></a>Welche Fächer ignoriert werden sollen</li>
+<li><a name='iCalPath'></a>Pfad zum Schreiben einer iCal-Datei - muss existieren und von fhem beschreibbar sein. Wird nach getTimeTable geschrieben</li>
+<li><a name='interval'></a>Polling-Intervall in Sekunden (Standard: 3600)</li>
+<li><a name='DaysTimetable'></a>Anzahl der Tage, für die Stundenplan-Daten abgerufen werden sollen</li>
+<li><a name='studentID'></a>wird verwendet, um den schülerspezifischen Stundenplan anstatt des klassenbasierten zu erhalten. Benötigt Attribut <code>timeTableMode</code> auf Student gesetzt</li>
+<li><a name='timeTableMode'></a>class: verwende die Klassen-Information / -ID für den Stundenplan <br>student: verwende die studentId um den Schüler-Stundenplan zu erhalten.</li>
+<li><a name='startDayTimeTable'></a>definiert, ab welchem Tag Stundenplan-Daten abgerufen werden sollen (Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday)</li>
+<li><a name='schoolYearStart'></a>Startdatum des Schuljahres (YYYYMMDD Format)</li>
+<li><a name='schoolYearEnd'></a>Enddatum des Schuljahres (YYYYMMDD Format)</li>
+<li><a name='maxRetries'></a>maximale Anzahl der Wiederholungsversuche für fehlgeschlagene Anfragen (Standard: angemessener Wert)</li>
+<li><a name='retryDelay'></a>Verzögerung zwischen Wiederholungsversuchen in Sekunden (Standard: angemessener Wert)</li>
+<li><a name='considerTimeOfDay'></a>Filtere Ausnahmen nach Zeit - wenn auf 'yes' gesetzt, zeigt nur Ausnahmen an, bei denen die Endzeit in der Zukunft liegt (Standard: 'no')</li>
+<li><a name='disable'></a>deaktiviere das Modul (yes/no)</li>
             </ul>
    </ul>
 </div>
