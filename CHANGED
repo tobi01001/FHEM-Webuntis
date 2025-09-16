@@ -1,0 +1,37 @@
+2025-09-15 0.3.00
+- Merge pull request #21 from tobi01001/copilot/fix-7-2
+- Remove passwordValid readings - keep only internal helper values
+- Add password status command and update documentation
+- Implement password validation and authentication error handling
+- Initial plan
+- Merge pull request #14 from tobi01001/copilot/fix-13
+- Resolve merge conflicts: integrate new retry logic while preserving timer concurrency fixes
+- Improve timer concurrency: shorter recheck interval and consistent cleanup
+- Merge pull request #16 from tobi01001/copilot/fix-15
+- Merge pull request #12 from tobi01001/copilot/fix-11
+- Merge pull request #10 from tobi01001/copilot/fix-9
+- Merge pull request #20 from tobi01001/copilot/fix-19
+- Merge pull request #6 from tobi01001/copilot/fix-5
+- Merge pull request #4 from tobi01001/copilot/fix-3
+- Merge pull request #2 from tobi01001/copilot/fix-1
+- Add comprehensive GitHub Copilot instructions for FHEM-Webuntis development
+- Implement timer concurrency control to prevent race conditions
+- Add documentation and improve code comments for retry logic
+- Implement HTML escaping to prevent injection vulnerabilities
+- Implement retry logic for command queue processing
+- Fix class name sanitization to handle all special characters
+- Implement DateTime-based date handling to replace string manipulation
+- Add logical consistency validation for schoolYear attributes
+- Fix iCal export path handling and add directory validation checks
+- Initial plan
+- Initial plan
+- Initial plan
+- Initial plan
+- Initial plan
+- Initial plan
+- Initial plan
+- Initial plan
+- Add current school year ID to readings in parseSchoolYear
+- initial module commit (forum version)
+- Initial commit
+
