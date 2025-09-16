@@ -146,6 +146,40 @@ sub format_date_for_display {
     return $dt->strftime("%d.%m.%Y");
 }
 
+sub is_exception_in_future {
+    my ($date_string, $end_time_string) = @_;
+    return 1 unless defined $date_string && defined $end_time_string;
+    
+    # Parse the date (YYYYMMDD format)
+    my $dt = parse_date_from_api($date_string);
+    return 1 unless $dt;
+    
+    # Parse the time (HHMM or HMM format) and add to the date
+    my ($hour, $minute);
+    if (length($end_time_string) >= 4) {
+        $hour = substr($end_time_string, 0, 2);
+        $minute = substr($end_time_string, 2, 2);
+    } elsif (length($end_time_string) == 3) {
+        $hour = "0" . substr($end_time_string, 0, 1);
+        $minute = substr($end_time_string, 1, 2);
+    } else {
+        return 1; # If time format is invalid, include the exception
+    }
+    
+    eval {
+        $dt->set_hour($hour);
+        $dt->set_minute($minute);
+        $dt->set_second(0);
+    };
+    if ($@) {
+        return 1; # If parsing fails, include the exception
+    }
+    
+    # Compare with current time
+    my $now = DateTime->now;
+    return $dt > $now;
+}
+
 # Readonly is recommended, but requires additional module
 use constant {
     WU_MINIMUM_INTERVAL => 300,
@@ -160,7 +194,7 @@ my $EMPTY = q{};
 my $SPACE = q{ };
 my $COMMA = q{,};
 
-my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "disable" );
+my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "considerTimeOfDay:yes,no", "disable" );
 
 
 ## Import der FHEM Funktionen
@@ -1056,6 +1090,12 @@ sub parseTT {
 					if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/,@exSu)) {
 						next;
 					}
+					# Filter exceptions by time if considerTimeOfDay is enabled
+					if (AttrVal($name, "considerTimeOfDay", "no") eq "yes") {
+						if (!is_exception_in_future($t->{date}, $t->{endTime})) {
+							next;
+						}
+					}
 					$exc = 1;
 					$exCnt++;
 					$lastE = $t;
@@ -1639,6 +1679,7 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='exceptionFilters'>Which field values should not be considered as an exception</a></li>
 <li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
 <li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
+<li><a name='considerTimeOfDay'>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</a></li>
 <li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
 <li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
             </ul>
@@ -1681,6 +1722,7 @@ define the module with <code>define <name> Webuntis </code>. After that, set you
 <li><a name='excludeSubjects'>Which subjects should be ignored</a></li>
 <li><a name='interval'>polling interval in seconds (defaults to 3600)</a></li>
 <li><a name='iCalPath'>path to write a iCal to - must exist and be writeable by fhem. gets written after getTimeTable </a></li>
+<li><a name='considerTimeOfDay'>Filter exceptions by time - if set to 'yes', only shows exceptions where endTime is in the future (defaults to 'no')</a></li>
 <li><a name='studentID'>used to get the student specific timetable instead of class based. Needs attr <code>timeTableMode</code> to be set to Student</a></li>
 <li><a name='timeTableMode'>class: use the class information / id for timetable <br>student: use the studentId to get the student time table.</a></li>
             </ul>
