@@ -34,6 +34,8 @@ package main;
 use strict;
 use warnings;
 
+use constant WEBUNTIS_VERSION => "0.3.00";
+
 package FHEM::Webuntis;
 
 use List::Util qw(any first);
@@ -93,47 +95,10 @@ if ( !$got_module ) {
 }
 
 # Helper functions for date handling with DateTime
-
-=pod
-
-=over
-
-=item format_date_for_api($datetime)
-
-Formats a DateTime object for API usage in YYYYMMDD format.
-
-Parameters:
-    $datetime - DateTime object to format
-
-Returns:
-    String in YYYYMMDD format
-
-=back
-
-=cut
-
 sub format_date_for_api {
     my $datetime = shift;
     return $date_formatter->format_datetime($datetime);
 }
-
-=pod
-
-=over
-
-=item parse_date_from_api($date_string)
-
-Parses a date string from API format (YYYYMMDD) into a DateTime object.
-
-Parameters:
-    $date_string - Date string in YYYYMMDD format
-
-Returns:
-    DateTime object on success, undef on error or malformed input
-
-=back
-
-=cut
 
 sub parse_date_from_api {
     my $date_string = shift;
@@ -150,43 +115,10 @@ sub parse_date_from_api {
     return $dt;
 }
 
-=pod
-
-=over
-
-=item get_today_as_string()
-
-Gets today's date in API format (YYYYMMDD).
-
-Returns:
-    String representation of today's date in YYYYMMDD format
-
-=back
-
-=cut
-
 sub get_today_as_string {
     my $today = DateTime->now;
     return format_date_for_api($today);
 }
-
-=pod
-
-=over
-
-=item format_time_for_display($time_string)
-
-Formats a time string for display with colon separator.
-
-Parameters:
-    $time_string - Time string in format HHMM or HMM
-
-Returns:
-    String in HH:MM format, empty string if invalid input
-
-=back
-
-=cut
 
 sub format_time_for_display {
     my $time_string = shift;
@@ -203,24 +135,6 @@ sub format_time_for_display {
     }
     return '';
 }
-
-=pod
-
-=over
-
-=item format_date_for_display($date_string)
-
-Formats a date string for display in German format.
-
-Parameters:
-    $date_string - Date string in API format (YYYYMMDD)
-
-Returns:
-    String in DD.MM.YYYY format, empty string if invalid input
-
-=back
-
-=cut
 
 sub format_date_for_display {
     my $date_string = shift;
@@ -301,24 +215,6 @@ GP_Export(
 );
 
 
-=pod
-
-=over
-
-=item Initialize($hash)
-
-Initialize the Webuntis module for FHEM. Sets up function pointers and attributes.
-
-Parameters:
-    $hash - FHEM device hash reference
-
-Returns:
-    Returns nothing
-
-=back
-
-=cut
-
 sub Initialize {
     my ($hash) = @_;
 
@@ -338,25 +234,6 @@ sub Initialize {
     return FHEM::Meta::InitMod( __FILE__, $hash );
 }
 ###################################
-
-=pod
-
-=over
-
-=item Define($hash, $def)
-
-Define a new Webuntis device in FHEM.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $def - Definition string containing device parameters
-
-Returns:
-    Error message on failure, undef on success
-
-=back
-
-=cut
 
 sub Define {
     my $hash = shift;
@@ -403,24 +280,6 @@ sub Define {
     return;
 }
 ###################################
-=pod
-
-=over
-
-=item Undefine($hash)
-
-Clean up when a Webuntis device is undefined in FHEM.
-
-Parameters:
-    $hash - FHEM device hash reference
-
-Returns:
-    Returns nothing
-
-=back
-
-=cut
-
 sub Undefine {
     my $hash = shift;
     RemoveInternalTimer($hash);
@@ -429,26 +288,7 @@ sub Undefine {
     clearTimerOperation($hash);
     return;
 }
-
-=pod
-
-=over
-
-=item Notify($hash, $dev)
-
-Handle FHEM system events for the Webuntis device.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $dev - Event device hash reference
-
-Returns:
-    Returns nothing
-
-=back
-
-=cut
-
+###################################
 sub Notify {
     my ( $hash, $dev ) = @_;
     my $name = $hash->{NAME};               # own name / hash
@@ -462,28 +302,6 @@ sub Notify {
     return;
 }
 ###################################
-=pod
-
-=over
-
-=item Set($hash, $name, $cmd, $arg, $val)
-
-Handle set commands for the Webuntis device.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $name - Device name
-    $cmd - Set command
-    $arg - Command argument
-    $val - Command value
-
-Returns:
-    Error message on failure, undef on success
-
-=back
-
-=cut
-
 sub Set {
     my $hash = shift;
     my $name = shift;
@@ -507,27 +325,7 @@ sub Set {
     }
     return qq (Unknown argument $cmd, choose one of password);
 }
-
-=pod
-
-=over
-
-=item Get($hash, $name, $cmd)
-
-Handle get commands for the Webuntis device.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $name - Device name
-    $cmd - Get command
-
-Returns:
-    Requested value or error message
-
-=back
-
-=cut
-
+###################################
 sub Get {
     my $hash = shift;
     my $name = shift;
@@ -867,7 +665,7 @@ sub getTimeTable {
 sub login {
     my $hash = shift;
     my $name = $hash->{NAME};
-
+    Log3 $name, LOG_SEND, "[$name] Starting login";
     my $param->{header} = {
         "Accept"          => "*/*",
         "Content-Type"    => "application/json",
@@ -884,12 +682,20 @@ sub login {
             "client"   => "FHEM"
         }
     );
+
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
     $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseLogin;
     $param->{hash}     = $hash;
-
+    # Log only non-sensitive info at normal level
+    Log3($name, LOG_SEND, "login sends to " . $param->{url} . " for user " . AttrVal($name, "user", $EMPTY));
+    # Log full data at debug level with password redacted
+    my $debug_body = { %body };
+    $debug_body->{params}{password} = "***REDACTED***" if exists $debug_body->{params}{password};
+    Log3($name, LOG_DEBUG, "login params: ".Dumper($debug_body));
+    Log3($name,LOG_DEBUG,"login params: ".Dumper(\%body));
+    Log3($name,LOG_DEBUG,"login header: ".Dumper($param));
     my ( $err, $data ) = HttpUtils_NonblockingGet($param);
 
 }
@@ -1161,363 +967,171 @@ sub parseClass {
     return;
 }
 
-=pod
-
-=over
-
-=item _handleTimetableResponse($hash, $err, $data)
-
-Handle the HTTP response for timetable requests, including error checking and JSON parsing.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $err - HTTP error message if any
-    $data - HTTP response data
-
-Returns:
-    Parsed JSON object on success, undef on error
-
-=back
-
-=cut
-
-sub _handleTimetableResponse {
-    my ($hash, $err, $data) = @_;
+sub parseTT {
+    my ( $param, $err, $data ) = @_;
+    my $hash = $param->{hash};
     my $name = $hash->{NAME};
-    
+
+    CommandDeleteReading( undef, "$name e_.*" );
+
     if ($err) {
         return if handleRetryOrFail($hash, $err, "parseTT");
         return;
     }
-    
     $data = latin1ToUtf8($data);
-    Log3($name, LOG_RECEIVE, "getTT received $data");
-    
-    my $json = safe_decode_json($hash, $data);
+    Log3( $name, LOG_RECEIVE, "getTT received $data");
+    my $json = safe_decode_json( $hash, $data );
     if (!$json) {
         return if handleRetryOrFail($hash, "No JSON received for Timetable", "parseTT");
         return;
     }
-    
-    if ($json->{error}) {
+    if ( $json->{error} ) {
         my $errorCode = $json->{error}{code};
         return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT", $errorCode);
         return;
     }
-    
+
     # Success - reset retry count
     delete $hash->{helper}{retryCount};
-    
-    return $json;
-}
 
-=pod
+    #Log3 ($name, LOG_ERROR, Dumper(${$json->{result}}[0]));
+    my @dat = @{ $json->{result} };
 
-=over
+    my @sorted =
+      sort { $a->{date} <=> $b->{date} or ($a->{code}//=$EMPTY) cmp ($b->{code}//=$EMPTY) or $a->{startTime} <=> $b->{startTime}} @dat;
 
-=item _calculateTimetableDates($hash)
+    Log3 $name, LOG_RECEIVE, Dumper(@sorted) ;
 
-Calculate today's and tomorrow's dates for timetable processing.
-
-Parameters:
-    $hash - FHEM device hash reference
-
-Returns:
-    Hash reference containing today and tomorrow date strings
-
-=back
-
-=cut
-
-sub _calculateTimetableDates {
-    my ($hash) = @_;
-    my $name = $hash->{NAME};
-    
-    my $today = get_today_as_string();
-    my $tomorrow_dt = DateTime->now->add(days => AttrNum($name, 'DaysTimetable', 7));
-    my $tomorrow = format_date_for_api($tomorrow_dt);
-    
-    return {
-        today => $today,
-        tomorrow => $tomorrow
-    };
-}
-
-=pod
-
-=over
-
-=item _checkException($t, $lastE, $exceptions_ref, $exSu_ref, $exceptionFilter_ref)
-
-Check if a timetable entry is an exception based on configured criteria.
-
-Parameters:
-    $t - Current timetable entry
-    $lastE - Last exception entry
-    $exceptions_ref - Array reference of exception indicators
-    $exSu_ref - Array reference of excluded subjects
-    $exceptionFilter_ref - Hash reference of exception filters
-
-Returns:
-    1 if entry is an exception, 0 otherwise
-
-=back
-
-=cut
-
-sub _checkException {
-    my ($t, $lastE, $exceptions_ref, $exSu_ref, $exceptionFilter_ref) = @_;
-    
-    # Check if this entry matches the previous one (merged entry)
-    my $old = $EMPTY;
-    my $new = $EMPTY;
-    
-    if (defined($lastE->{date})
-        and $lastE->{date} eq $t->{date} 
-        and $lastE->{endTime} eq $t->{startTime}
-    ) {
-        if ($lastE->{lstype}) { $old .= $lastE->{lstype} };
-        if ($lastE->{code}) { $old .= $lastE->{code} };
-        if ($lastE->{info}) { $old .= $lastE->{info} };
-        if ($lastE->{substText}) { $old .= $lastE->{substText} };
-        if ($lastE->{lstext}) { $old .= $lastE->{lstext} };
-        if ($lastE->{activityType}) { $old .= $lastE->{activityType} };
-        
-        if ($t->{lstype}) { $new .= $t->{lstype} };
-        if ($t->{code}) { $new .= $t->{code} };
-        if ($t->{info}) { $new .= $t->{info} };
-        if ($t->{substText}) { $new .= $t->{substText} };
-        if ($t->{lstext}) { $new .= $t->{lstext} };
-        if ($t->{activityType}) { $new .= $t->{activityType} };
-    }
-    
-    if ($old eq $new and $old ne $EMPTY) {
-        $t->{startTime} = $lastE->{startTime};
-        return 1;
-    }
-    
-    # Check for configured exception indicators
-    foreach my $e (@$exceptions_ref) {
-        if ($t->{$e}) {
-            if ($exceptionFilter_ref->{$e} && $t->{$e} =~ /$exceptionFilter_ref->{$e}/) {
-                next;
-            }
-            if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/, @$exSu_ref)) {
-                next;
-            }
-            return 1;
-        }
-    }
-    
-    return 0;
-}
-
-=pod
-
-=over
-
-=item _buildTimetableRow($t)
-
-Build an HTML table row for a timetable entry.
-
-Parameters:
-    $t - Timetable entry hash reference
-
-Returns:
-    Hash reference with 'html' and 'reading' keys
-
-=back
-
-=cut
-
-sub _buildTimetableRow {
-    my ($t, $exceptionFilter) = @_;
-    
-    my $htmlRow = "<tr>";
-    my $rv = $EMPTY;
-    my @fields = ("date", "startTime", "endTime", "lstype", "code", "info", "substText", "lstext", "activityType", "ro", "su", "te");
-    my @ofields = ("ro", "su", "te");
-    
-    foreach my $f (@fields) {
-        $htmlRow .= "<td>";
-        if ($t->{$f}) {
-            if (any { /^$f$/xsm } @ofields) {
-                if ($t->{$f}[0]{longname}) {
-                    $htmlRow .= escapeHTML($t->{$f}[0]{longname});
-                    $rv .= $f . ":longname=\"" . $t->{$f}[0]{longname} . "\"";
-                }
-                $htmlRow .= "</td><td>";
-                $rv .= $SPACE;
-                if ($t->{$f}[0]{name}) {
-                    $htmlRow .= escapeHTML($t->{$f}[0]{name});
-                    $rv .= $f . ":name=\"" . $t->{$f}[0]{name} . "\"";
-                }
-            }
-            ## if we have an exception filter (ie 1.HJ) then we also don't want this value in the reading
-            elsif (!($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/)) {
-                $htmlRow .= escapeHTML($t->{$f});
-                $rv .= $f . "=\"" . $t->{$f} . "\"";
-            }
-            $htmlRow .= "</td>";
-            $rv .= $SPACE;
-        }
-    }
-    $htmlRow .= "</tr>";
-    
-    return {
-        html => $htmlRow,
-        reading => $rv
-    };
-}
-
-=pod
-
-=over
-
-=item _addToReadingList($rn, $date, $dates_ref, $lists_ref)
-
-Add a reading name to the appropriate date lists (today/tomorrow).
-
-Parameters:
-    $rn - Reading name
-    $date - Entry date
-    $dates_ref - Hash reference containing today/tomorrow dates
-    $lists_ref - Hash reference containing today/tomorrow reading lists
-
-Returns:
-    Nothing (modifies lists_ref in place)
-
-=back
-
-=cut
-
-sub _addToReadingList {
-    my ($rn, $date, $dates_ref, $lists_ref) = @_;
-    
-    if ($date eq $dates_ref->{today}) {
-        if ($lists_ref->{rToday} eq $EMPTY) {
-            $lists_ref->{rToday} .= $rn;    
-        } else {
-            $lists_ref->{rToday} .= $COMMA . $rn;
-        }
-    }
-    
-    if ($date eq $dates_ref->{tomorrow}) {
-        if ($lists_ref->{rTomorrow} eq $EMPTY) {
-            $lists_ref->{rTomorrow} .= $rn;    
-        } else {
-            $lists_ref->{rTomorrow} .= $COMMA . $rn;
-        }
-    }
-}
-
-=pod
-
-=over
-
-=item parseTT($param, $err, $data)
-
-Parse timetable data received from Webuntis API and update device readings.
-
-Parameters:
-    $param - Parameter hash containing device hash
-    $err - HTTP error if any
-    $data - HTTP response data
-
-Returns:
-    Nothing
-
-=back
-
-=cut
-
-sub parseTT {
-    my ($param, $err, $data) = @_;
-    my $hash = $param->{hash};
-    my $name = $hash->{NAME};
-
-    CommandDeleteReading(undef, "$name e_.*");
-
-    # Handle HTTP response and parse JSON
-    my $json = _handleTimetableResponse($hash, $err, $data);
-    return unless $json;
-
-    # Process and sort timetable data
-    my @dat = @{$json->{result}};
-    my @sorted = sort { 
-        $a->{date} <=> $b->{date} or 
-        ($a->{code} // $EMPTY) cmp ($b->{code} // $EMPTY) or 
-        $a->{startTime} <=> $b->{startTime}
-    } @dat;
-
-    Log3($name, LOG_RECEIVE, Dumper(@sorted));
     $hash->{helper}{tt} = \@sorted;
 
-    # Calculate date references
-    my $dates = _calculateTimetableDates($hash);
+    my $today = get_today_as_string();
+    my $tomorrow_dt = DateTime->now->add(days => AttrNum( $name, 'DaysTimetable', 7 ));
+    my $tomorrow = format_date_for_api($tomorrow_dt);
 
-    # Initialize processing variables
+
+
     my $html = "<html><table>";
-    my @exceptions = split($COMMA, AttrVal($name, "exceptionIndicator", $EMPTY));
-    my @exSu = split($COMMA, AttrVal($name, "excludeSubjects", $EMPTY));
-    my ($a, $exceptionFilter) = ::parseParams(AttrVal($name, "exceptionFilter", $EMPTY));
-    
+    my @exceptions = split( $COMMA, AttrVal( $name, "exceptionIndicator", $EMPTY ) );
+	my @exSu = split( $COMMA, AttrVal( $name, "excludeSubjects", $EMPTY ) );
+    my ( $a, $exceptionFilter ) = ::parseParams( AttrVal( $name, "exceptionFilter", $EMPTY ) );
+    ##my %exceptionFilter = (lstext=>"2.HJ");
     my $exCnt = 0;
-    my $lists = { rToday => "", rTomorrow => "" };
-    my $lastE;
-    my $htmlRow = "";
-
-    # Process each timetable entry
+    my $rToday = "";
+    my $rTomorrow = "";
+	my $lastE;
+	my $htmlRow = "";
     foreach my $t (@sorted) {
-        my $exc = _checkException($t, $lastE, \@exceptions, \@exSu, $exceptionFilter);
-        
-        if (!$exc) {
-            $html .= $htmlRow;
-            foreach my $e (@exceptions) {
-                if ($t->{$e}) {
-                    if ($exceptionFilter->{$e} && $t->{$e} =~ /$exceptionFilter->{$e}/) {
-                        next;
+        my $exc;
+		# try to compare with previous / we have a matching item
+		my $old =$EMPTY;
+		my $new =$EMPTY;
+		if (defined ($lastE->{date})
+			and $lastE->{date} eq $t->{date} 
+			and $lastE->{endTime} eq $t->{startTime}
+		)
+		{	if ($lastE->{lstype}) {$old .= $lastE->{lstype}};
+			if ($lastE->{code}) {$old .= $lastE->{code}};
+			if ($lastE->{info}) {$old .= $lastE->{info}};
+			if ($lastE->{substText}) {$old .= $lastE->{substText}};
+			if ($lastE->{lstext}) {$old .= $lastE->{lstext}};
+			if ($lastE->{activityType}) {$old .= $lastE->{activityType}};
+			if ($t->{lstype}) {$new .= $t->{lstype}};
+			if ($t->{code}) {$new .= $t->{code}};
+			if ($t->{info}) {$new .= $t->{info}};
+			if ($t->{substText}) {$new .= $t->{substText}};
+			if ($t->{lstext}) {$new .= $t->{lstext}};
+			if ($t->{activityType}) {$new .= $t->{activityType}};
+		}
+		if ($old eq $new and $old ne $EMPTY){
+				$t->{startTime} = $lastE->{startTime};
+				$exc = 1;
+		}
+		else {
+			$html .= $htmlRow;
+			foreach my $e (@exceptions) {
+				if ( $t->{$e} ) {
+					if ( $exceptionFilter->{$e} && $t->{$e} =~ /$exceptionFilter->{$e}/ ) {
+						next;
+					}
+					if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/,@exSu)) {
+						next;
+					}
+					$exc = 1;
+					$exCnt++;
+					$lastE = $t;
+					last;
+				}
+			}
+		}
+        my $rn = ::makeReadingName( "e_" . sprintf( "%02d", $exCnt ) );
+        my $rv = $EMPTY;
+
+        $htmlRow = "<tr>";
+        my @fields = ( "date", "startTime", "endTime", "lstype", "code", "info", "substText", "lstext", "activityType", "ro", "su", "te" );
+        my @ofields = ( "ro", "su", "te" );
+        foreach my $f (@fields) {
+            $htmlRow .= "<td>";
+            if ( $t->{$f} ) {
+                if ( any { /^$f$/xsm } @ofields ) {
+                    if ( $t->{$f}[0]{longname} ) {
+                        $htmlRow .= escapeHTML($t->{$f}[0]{longname});
+                        $rv   .= $f.":longname=\"".$t->{$f}[0]{longname}."\"";
                     }
-                    if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/, @exSu)) {
-                        next;
+                    $htmlRow .= "</td><td>";
+                    $rv   .= $SPACE;
+                    if ( $t->{$f}[0]{name} ) {
+                        $html .= escapeHTML($t->{$f}[0]{name});
+                        $rv   .= $f.":name=\"".$t->{$f}[0]{name}."\"";
                     }
-                    $exc = 1;
-                    $exCnt++;
-                    $lastE = $t;
-                    last;
+
                 }
+				## if we have an exception filter (ie 1.HJ) then we also don't want this value in the reading
+                elsif ( !($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/ )) {
+                    $htmlRow .= escapeHTML($t->{$f});
+                    $rv   .= $f."=\"".$t->{$f}."\"";
+                }
+                $htmlRow .= "</td>";
+                $rv   .= $SPACE;
             }
         }
-
-        my $rn = ::makeReadingName("e_" . sprintf("%02d", $exCnt));
-
-        # Build table row and reading value
-        my $row_data = _buildTimetableRow($t, $exceptionFilter);
-        $htmlRow = $row_data->{html};
-        $html .= $htmlRow;
-
-        # Handle exception entries
+        $htmlRow .= "</tr>";
+		$html .= $htmlRow;
         if ($exc) {
-            readingsSingleUpdate($hash, $rn, $row_data->{reading}, 1);
-            _addToReadingList($rn, $t->{date}, $dates, $lists);
+            readingsSingleUpdate( $hash, $rn, $rv, 1 );
+            if ($t->{date} eq $today) {
+                if ($rToday eq $EMPTY) {
+                    $rToday .= $rn;    
+                }
+                else {
+                    $rToday .= $COMMA.$rn;
+                }
+            }
+            if ($t->{date} eq $tomorrow) {
+                if ($rTomorrow eq $EMPTY) {
+                    $rTomorrow .= $rn;    
+                }
+                else {
+                    $rTomorrow .= $COMMA.$rn;
+                }
+            }
+
         }
     }
-
-    # Finalize HTML and update readings
     $html .= "</table></html>";
+
+    #Log3 $name, LOG_ERROR, $html;
     $hash->{helper}{timetable} = $html;
-    
-    readingsSingleUpdate($hash, "exceptionToday", join($COMMA, uniq(split($COMMA, $lists->{rToday}))), 1);
-    readingsSingleUpdate($hash, "exceptionTomorrow", join($COMMA, uniq(split($COMMA, $lists->{rTomorrow}))), 1);
-    readingsSingleUpdate($hash, "exceptionCount", $exCnt, 1);
-    readingsSingleUpdate($hash, "state", "processing done", 1);
-
-    # Export to iCal
-    exportTT2iCal($hash);
-
-    # Clear timer running flag
-    delete $hash->{helper}{timerRunning};
-    
+    readingsSingleUpdate( $hash, "exceptionToday", join($COMMA,uniq(split($COMMA,$rToday))), 1 );
+    readingsSingleUpdate( $hash, "exceptionTomorrow", join($COMMA,uniq(split($COMMA,$rTomorrow))), 1 );
+    readingsSingleUpdate( $hash, "exceptionCount", $exCnt, 1 );
+    readingsSingleUpdate( $hash, "state", "processing done", 1 );
+	
+	### Export timetable into iCal - file ### Sailor ###
+	exportTT2iCal($hash);
+	
+	# Clear timer running flag to allow next timer execution
+	delete $hash->{helper}{timerRunning};
+	
     return;
 }
 
@@ -1570,24 +1184,6 @@ sub simpleTable {
 
 }
 
-=pod
-
-=over
-
-=item escapeHTML($text)
-
-Escapes HTML special characters in text for safe HTML output.
-
-Parameters:
-    $text - Input text to escape
-
-Returns:
-    HTML-escaped text
-
-=back
-
-=cut
-
 sub escapeHTML {
     my $text = shift;
     return $text unless defined $text;
@@ -1599,49 +1195,12 @@ sub escapeHTML {
     return $text;
 }
 
-=pod
-
-=over
-
-=item uniq(@list)
-
-Returns unique elements from a list, preserving order.
-
-Parameters:
-    @list - Input list
-
-Returns:
-    List with duplicate elements removed
-
-=back
-
-=cut
-
 sub uniq {
     my %seen;
     grep !$seen{$_}++, @_;
 }
 
-=pod
-
-=over
-
-=item getCookies($hash, $header)
-
-Parse HTTP cookies from response headers and store them in the device hash.
-Code adapted from HTTPMOD module.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $header - HTTP response header string
-
-Returns:
-    Nothing (stores cookies in hash)
-
-=back
-
-=cut
-
+### stolen from HTTPMOD
 sub getCookies {
     my $hash   = shift;
     my $header = shift;
@@ -1808,25 +1367,6 @@ sub retryProcessing {
     return;
 }
 
-=pod
-
-=over
-
-=item safe_decode_json($hash, $data)
-
-Safely decode JSON data with error handling and logging.
-
-Parameters:
-    $hash - FHEM device hash reference for logging
-    $data - JSON data string to decode
-
-Returns:
-    Decoded JSON object or undef on error
-
-=back
-
-=cut
-
 sub safe_decode_json {
     my $hash = shift;
     my $data = shift;
@@ -1863,25 +1403,6 @@ sub use_module_prio {
     return;
 }
 
-=pod
-
-=over
-
-=item StorePassword($hash, $password)
-
-Store password securely using FHEM's password management system.
-
-Parameters:
-    $hash - FHEM device hash reference
-    $password - Password to store
-
-Returns:
-    Success message or error message
-
-=back
-
-=cut
-
 sub StorePassword {
     my $hash     = shift;
     my $password = shift;
@@ -1896,24 +1417,6 @@ sub StorePassword {
 
     return "password successfully saved";
 }
-
-=pod
-
-=over
-
-=item ReadPassword($hash)
-
-Read stored password using FHEM's password management system.
-
-Parameters:
-    $hash - FHEM device hash reference
-
-Returns:
-    Password string or undef if not found
-
-=back
-
-=cut
 
 sub ReadPassword {
     my $hash = shift;
@@ -1941,303 +1444,158 @@ sub Rename {
 }
 
 ### To export entire time table into iCal from @Sailor
-=pod
-
-=over
-
-=item _generateICalEvent($TTHashcontent, $name, $timestamp)
-
-Generate a single iCal event entry from a timetable entry.
-
-Parameters:
-    $TTHashcontent - Timetable entry hash reference
-    $name - Device name for attribute access
-    $timestamp - Current timestamp for the event
-
-Returns:
-    String containing the iCal event entry
-
-=back
-
-=cut
-
-sub _generateICalEvent {
-    my ($TTHashcontent, $name, $timestamp) = @_;
-    
-    my $TTClass    = Encode::decode('iso-8859-1', $TTHashcontent->{kl}[0]{longname}) || 'NN ';
-    my $TTSubject  = Encode::decode('iso-8859-1', $TTHashcontent->{su}[0]{longname}) || 'NN ';
-    my $TTTeacher  = Encode::decode('iso-8859-1', $TTHashcontent->{te}[0]{longname}) || 'NN ';
-    my $TTLocation = Encode::decode('iso-8859-1', $TTHashcontent->{ro}[0]{longname}) || 'NN ';
-    
-    my $CalSubject = $TTClass . " " . $TTSubject . " " . $TTTeacher;
-    my $CalInfo    = "Klasse: " . $TTClass . "\\n" . "Unterricht: " . $TTSubject . "\\n" . "Ort: " . $TTLocation . "\\n" . "Lehrkraft: " . $TTTeacher;
-    
-    my $eventContent = "BEGIN:VEVENT\n";
-    $eventContent .= "CLASS:PUBLIC\n";
-    $eventContent .= "STATUS:CONFIRMED\n";
-    $eventContent .= "TRANSP:TRANSPARENT\n";
-    $eventContent .= "CATEGORIES:EDUCATION\n";
-    $eventContent .= "URL:" . AttrVal($name, "server", "") . "\n";
-    $eventContent .= "UID:" . $TTHashcontent->{id} . "\n";
-    $eventContent .= "LOCATION:" . $TTLocation . "\n";
-    $eventContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d', $TTHashcontent->{startTime}) . "00\n";
-    $eventContent .= "DTEND;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d', $TTHashcontent->{endTime}) . "00\n";
-    $eventContent .= "DTSTAMP;TZID=Europe/Berlin:" . $timestamp . "\n";
-    $eventContent .= "SUMMARY:" . $CalSubject . "\n";
-    $eventContent .= "DESCRIPTION:" . $CalInfo . "\n";
-    $eventContent .= "END:VEVENT\n\n";
-    
-    return $eventContent;
-}
-
-=pod
-
-=over
-
-=item _generateICalContent($hash)
-
-Generate the complete iCal content from timetable data.
-
-Parameters:
-    $hash - FHEM device hash reference
-
-Returns:
-    String containing the complete iCal content
-
-=back
-
-=cut
-
-sub _generateICalContent {
-    my ($hash) = @_;
-    my $name = $hash->{NAME};
-    my @jsonTimeTable = $hash->{helper}{tt};
-    
-    # Get current timestamp
-    my $now = DateTime->now;
-    my $timestamp = $now->strftime('%Y%m%dT%H%M%S');
-    
-    # Start iCal content
-    my $iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
-    
-    # Process each timetable array
-    foreach my $TimeTableArray (@jsonTimeTable) {
-        Log3($name, 5, $name . " : Webuntis_exportTT2iCal - TimeTableArray           : " . Dumper($TimeTableArray));
-        Log3($name, 5, $name . " : Webuntis_exportTT2iCal====================================================");
-        
-        foreach my $TTHashcontent (@$TimeTableArray) {
-            Log3($name, 5, $name . " : Webuntis_exportTT2iCal - Progressing TT item      : #" . $TTHashcontent->{id});
-            $iCalFileContent .= _generateICalEvent($TTHashcontent, $name, $timestamp);
-            Log3($name, 5, $name . " : Webuntis_exportTT2iCal_____________________________________________________");
-        }
-    }
-    
-    $iCalFileContent .= "END:VCALENDAR";
-    return $iCalFileContent;
-}
-
-=pod
-
-=over
-
-=item _buildUnixPath($iCalPath, $cwd, $user)
-
-Build file path for Unix/Linux systems.
-
-Parameters:
-    $iCalPath - User-provided iCal path
-    $cwd - Current working directory
-    $user - Username for file naming
-
-Returns:
-    Hash reference with 'filePath' and 'dirPath' keys
-
-=back
-
-=cut
-
-sub _buildUnixPath {
-    my ($iCalPath, $cwd, $user) = @_;
-    
-    my $iCalFileName;
-    my $IcalFileDir;
-    
-    # Determine base path (absolute or relative)
-    if ($iCalPath =~ /^\//) {
-        $iCalFileName = $iCalPath;
-    } else {
-        $iCalFileName = $cwd . "/" . $iCalPath;
-    }
-    
-    # Handle trailing slash and create complete path
-    if ($iCalPath =~ /\/\z/) {
-        $IcalFileDir = $iCalFileName;
-        $iCalFileName .= "untis_TT_" . $user . ".ics";
-    } else {
-        $IcalFileDir = $iCalFileName . "/";
-        $iCalFileName .= "/" . "untis_TT_" . $user . ".ics";
-    }
-    
-    return {
-        filePath => $iCalFileName,
-        dirPath => $IcalFileDir
-    };
-}
-
-=pod
-
-=over
-
-=item _buildWindowsPath($iCalPath, $cwd, $user)
-
-Build file path for Windows systems.
-
-Parameters:
-    $iCalPath - User-provided iCal path
-    $cwd - Current working directory
-    $user - Username for file naming
-
-Returns:
-    Hash reference with 'filePath' and 'dirPath' keys
-
-=back
-
-=cut
-
-sub _buildWindowsPath {
-    my ($iCalPath, $cwd, $user) = @_;
-    
-    my $iCalFileName;
-    my $IcalFileDir;
-    
-    # Determine base path (absolute or relative)
-    if ($iCalPath !~ /^.:\\/) {
-        $iCalFileName = $cwd . $iCalPath;
-    } else {
-        $iCalFileName = $iCalPath;
-    }
-    
-    # Handle trailing backslash and create complete path
-    if ($iCalPath =~ /\\\z/) {
-        $IcalFileDir = $iCalFileName;
-        $iCalFileName .= "untis_TT_" . $user . ".ics";
-    } else {
-        $IcalFileDir = $iCalFileName . "\\";
-        $iCalFileName .= "\\" . "untis_TT_" . $user . ".ics";
-    }
-    
-    return {
-        filePath => $iCalFileName,
-        dirPath => $IcalFileDir
-    };
-}
-
-=pod
-
-=over
-
-=item _determineICalFilePath($iCalPath, $user, $name)
-
-Determine the complete file path for iCal export based on the system and user configuration.
-
-Parameters:
-    $iCalPath - User-provided iCal path
-    $user - Username for file naming
-    $name - Device name for logging
-
-Returns:
-    Hash reference with 'filePath' and 'dirPath' keys, or undef on error
-
-=back
-
-=cut
-
-sub _determineICalFilePath {
-    my ($iCalPath, $user, $name) = @_;
-    
-    my $cwd = getcwd();
-    Log3($name, 5, $name . " : Webuntis_exportTT2iCal - working directory        : " . $cwd);
-    
-    my $path_result;
-    
-    # Unix/Linux path
-    if ($cwd =~ /\//) {
-        Log3($name, 5, $name . " : Webuntis_exportTT2iCal - file system format     : LINUX");
-        $path_result = _buildUnixPath($iCalPath, $cwd, $user);
-    }
-    # Windows path
-    elsif ($iCalPath =~ /\\/) {
-        Log3($name, 5, $name . " : Webuntis_exportTT2iCal - file system format       : WINDOWS");
-        $path_result = _buildWindowsPath($iCalPath, $cwd, $user);
-    } else {
-        Log3($name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot determine file system format");
-        return;
-    }
-    
-    Log3($name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to  : " . $path_result->{filePath});
-    
-    # Validate directory
-    if (!-d $path_result->{dirPath}) {
-        Log3($name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory does not exist: " . $path_result->{dirPath});
-        return;
-    }
-    
-    if (!-w $path_result->{dirPath}) {
-        Log3($name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory is not writable: " . $path_result->{dirPath});
-        return;
-    }
-    
-    return $path_result;
-}
-
-=pod
-
-=over
-
-=item exportTT2iCal($hash)
-
-Export timetable data to iCal format file.
-
-Parameters:
-    $hash - FHEM device hash reference
-
-Returns:
-    Nothing
-
-=back
-
-=cut
-
 sub exportTT2iCal {
-    my $hash = shift;
-    my $name = $hash->{NAME};
-    my $iCalPath = AttrVal($name, "iCalPath", "");
+    my $hash          = shift;
+    my $name          = $hash->{NAME};
+	my $iCalPath      = AttrVal($name, "iCalPath", "");
 
-    # Check if iCalPath attribute is provided
-    if ($iCalPath eq "") {
-        Log3($name, 4, $name . " : Webuntis_exportTT2iCal - Attribute \"iCalPath\" not provided - Skipping export.");
-        return;
-    }
+	### Check ehether the Attribute iCalPath has been provided otherwise skip export
+	if ($iCalPath ne "") {
 
-    my $user = AttrVal($name, "user", "NA");
+		my $iCalFileName;
+		my $iCalFileContent;
+		my @jsonTimeTable = $hash->{helper}{tt};
+		my $user          = AttrVal($name, "user"    , "NA");
 
-    # Generate iCal content
-    my $iCalFileContent = _generateICalContent($hash);
+		### Get current timestamp using DateTime
+		my $now = DateTime->now;
+		my $timestamp = $now->strftime('%Y%m%dT%H%M%S');
 
-    # Determine file path
-    my $path_info = _determineICalFilePath($iCalPath, $user, $name);
-    return unless $path_info;
+		####START##### Transform json-Timetable in ical Timetable #####START####
+		$iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
+		foreach my $TimeTableArray ( @jsonTimeTable ) {
 
-    # Write file
-    if (!open(FH, '>', $path_info->{filePath})) {
-        Log3($name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot open file for writing: " . $path_info->{filePath} . " - " . $!);
-        return;
-    }
-    
-    print FH $iCalFileContent;
-    close(FH);
-    
-    return;
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - TimeTableArray           : " . Dumper($TimeTableArray);
+			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal====================================================";
+			
+			foreach my $TTHashcontent (@$TimeTableArray) {
+				Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - Progressing TT item      : #" . $TTHashcontent->{id};
+
+				my $TTClass    = Encode::decode( 'iso-8859-1', $TTHashcontent->{kl}[0]{longname}) || 'NN ';
+				my $TTSubject  = Encode::decode( 'iso-8859-1', $TTHashcontent->{su}[0]{longname}) || 'NN ';
+				my $TTTeacher  = Encode::decode( 'iso-8859-1', $TTHashcontent->{te}[0]{longname}) || 'NN ';
+				my $TTLocation = Encode::decode( 'iso-8859-1', $TTHashcontent->{ro}[0]{longname}) || 'NN ';
+	
+				my $CalSubject = $TTClass . " " . $TTSubject . " " . $TTTeacher;
+				my $CalInfo    = "Klasse: " . $TTClass . "\\n" . "Unterricht: " . $TTSubject . "\\n" . "Ort: " . $TTLocation . "\\n" . "Lehrkraft: " . $TTTeacher;
+
+				$iCalFileContent .= "BEGIN:VEVENT\n";
+				$iCalFileContent .= "CLASS:PUBLIC\n";
+				$iCalFileContent .= "STATUS:CONFIRMED\n";
+				$iCalFileContent .= "TRANSP:TRANSPARENT\n";
+				$iCalFileContent .= "CATEGORIES:EDUCATION\n";
+				$iCalFileContent .= "URL:"                        . AttrVal($name, "server", ""  ) . "\n";
+				$iCalFileContent .= "UID:"                        . $TTHashcontent->{id} . "\n";
+				$iCalFileContent .= "LOCATION:"                   . $TTLocation . "\n";
+				$iCalFileContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{startTime}) . "00\n";
+				$iCalFileContent .= "DTEND;TZID=Europe/Berlin:"   . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{endTime})   . "00\n";
+				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . $timestamp ."\n";
+				$iCalFileContent .= "SUMMARY:"                    . $CalSubject . "\n";
+				$iCalFileContent .= "DESCRIPTION:"                . $CalInfo . "\n";
+				$iCalFileContent .= "END:VEVENT\n\n";
+				Log3 $name, 5, $name. " : Webuntis_exportTT2iCal_____________________________________________________";
+			}
+		}
+		$iCalFileContent .= "END:VCALENDAR";
+		#####END###### Transform json-Timetable in ical Timetable ######END#####
+
+
+		### Get current working directory
+		my $cwd = getcwd();
+		my $IcalFileDir;
+
+		### Log Entry for debugging purposes
+		Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - working directory        : " . $cwd;
+
+		### If the path is given as UNIX file system format
+		if ($cwd =~ /\//) {
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format     : LINUX";
+
+			### Find out whether it is an absolute path or an relative one (leading "/")
+			if ($iCalPath =~ /^\//) {
+			
+				$iCalFileName = $iCalPath;
+			}
+			else {
+				$iCalFileName = $cwd . "/" . $iCalPath;						
+			}
+
+			### Check whether the last "/" at the end of the path has been given otherwise add it an create complete path
+			if ($iCalPath =~ /\/\z/) {
+				### Save directory
+				$IcalFileDir = $iCalFileName;
+				
+				### Create complete datapath
+
+				$iCalFileName .=       "untis_TT_" . $user . ".ics";
+			}
+			else {
+				### Save directory
+				$IcalFileDir = $iCalFileName . "/";
+				
+				### Create complete datapath
+				$iCalFileName .= "/" . "untis_TT_" . $user . ".ics";
+			}
+		}
+
+		### If the path is given as Windows file system format
+		if ($iCalPath =~ /\\/) {
+			### Log Entry for debugging purposes
+			Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - file system format       : WINDOWS";
+
+			### Find out whether it is an absolute path or an relative one (containing ":\")
+			if ($iCalPath !~ /^.:\\/) {
+				$iCalFileName = $cwd . $iCalPath;
+			}
+			else {
+				$iCalFileName = $iCalPath;						
+			}
+
+			### Check whether the last "/" at the end of the path has been given otherwise add it an create complete path
+			if ($iCalPath =~ /\\\z/) {
+				### Save directory
+				$IcalFileDir = $iCalFileName;
+				
+				### Create full datapath
+				$iCalFileName .=       "untis_TT_" . $user . ".ics";;
+			}
+			else {
+				### Save directory
+				$IcalFileDir = $iCalFileName . "\\";
+
+				### Create full datapath
+				$iCalFileName .= "\\" . "untis_TT_" . $user . ".ics";;
+			}
+		}
+
+		Log3 $name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to  : " . $iCalFileName;
+		
+		# Check if directory exists and is writable
+		if (!-d $IcalFileDir) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory does not exist: " . $IcalFileDir;
+			return;
+		}
+		
+		if (!-w $IcalFileDir) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory is not writable: " . $IcalFileDir;
+			return;
+		}
+		
+		if (!open(FH, '>', $iCalFileName)) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot open file for writing: " . $iCalFileName . " - " . $!;
+			return;
+		}
+		print FH $iCalFileContent;
+		close(FH);
+	}
+	### Skipping export
+	else {
+		### Log Entry for debugging purposes
+		Log3 $name, 4, $name . " : Webuntis_exportTT2iCal - Attribute \"iCalPath\" mot provided - Skipping export.";
+	}
+	return;
 }
 1;
 
