@@ -1,3 +1,6 @@
+2025-09-29 0.3.03
+- Bump version to 0.3.02, update changelog, and improve documentation
+
 2025-09-16 0.3.02
 - Merge pull request #25 from tobi01001/copilot/fix-24
 - Update version to 0.3.01, improve password update handling, and enhance logging

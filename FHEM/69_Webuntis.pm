@@ -21,7 +21,8 @@
 #
 ##############################################################################
 #   Changelog:
-#   0.3.02 - 2024-10-16 Update version to 0.3.02, improved documentation / html help sections
+#   0.3.03 - 2025-09-16 Update version to 0.3.03, new getters, fixes, tobi
+#   0.3.02 - 2025-09-16 Update version to 0.3.02, improved documentation / html help sections
 #   0.3.01 - 2024-10-15 Improve password update handling with detailed logging and state updates, tobi
 #   0.3.00 - 2024-10-14 Bugfixes and Optimizations, new Attribute to consider time of day for exceptions, tobi
 #   0.2.01 - 2024-09-02 iCal Erzeugung, andies
@@ -39,7 +40,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.02";
+use constant WEBUNTIS_VERSION => "0.3.03";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -374,7 +375,7 @@ sub Set {
 ###################################
 sub Get {
     my $hash = shift;
-    my $name = shift;
+    my $name = shift // $hash->{NAME};
     my $cmd  = shift // return "get $name needs at least one argument";
 
     if ( !ReadPassword($hash) ) {
@@ -403,7 +404,13 @@ sub Get {
     if ( $cmd eq 'passwordStatus' ) {
         return getPasswordStatus($hash);
     }
-    return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg passwordStatus:noArg);
+	if ( $cmd eq 'getJSONtimeTable' ) {
+		return getJSONtimeTable($hash);
+	}
+	if ( $cmd eq 'getSimpleTable' ) {
+		return simpleTable($name);
+	}
+    return qq(Unknown argument $cmd, choose one of timetable:noArg classes:noArg retrieveClasses:noArg schoolYear:noArg passwordStatus:noArg getJSONtimeTable:noArg getSimpleTable:noArg);
 }
 ###################################
 # Retrieve school year boundaries from server
@@ -1187,6 +1194,14 @@ sub parseTT {
     return;
 }
 
+sub getJSONtimeTable($) {
+	my ($hash) = @_;
+	my $name = $hash->{NAME};
+    my $JSON = $hash->{helper}{tt} // "Please call get $name timetsble first";
+	return Dumper($JSON);
+}
+
+
 sub simpleTable {
     my $name = shift;
     my $pattern = shift;
@@ -1233,7 +1248,7 @@ sub simpleTable {
         $html .= "</tr>";
     }
     $html .= "</table></body></html>";
-
+	return $html;
 }
 
 sub escapeHTML {

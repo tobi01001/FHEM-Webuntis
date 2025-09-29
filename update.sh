@@ -17,6 +17,9 @@
 #   MODULE - The path to the module file being tracked.
 #   SIZE   - The size of the module file in bytes.
 #   CHANGED- A flag variable (currently unused in this snippet).
+
+echo "Updating controls_webuntis.txt..."
+
 FILE="controls_webuntis.txt"
 DATE=$(date +"%Y-%m-%d_%H:%M:%S")
 MODULE="FHEM/69_Webuntis.pm"
@@ -31,7 +34,10 @@ VERSION=$(grep -Po 'WEBUNTIS_VERSION\s*=>\s*"\K[0-9\.]+' "$MODULE" | head -1)
 if [ -z "$VERSION" ]; then
     echo "Could not detect version in $MODULE"
     exit 1
+else
+    echo "Detected version: $VERSION"
 fi
+
 
 TAG="v$VERSION"
 
@@ -41,11 +47,16 @@ TAG="v$VERSION"
 # Find last tag
 LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
 
+
 # Get commit messages since last tag
 if [ -n "$LAST_TAG" ]; then
     CHANGES=$(git log "$LAST_TAG"..HEAD --pretty=format:"- %s")
+    echo "Detected changes since last tag $LAST_TAG:"
+    echo "$CHANGES"
 else
     CHANGES=$(git log --pretty=format:"- %s")
+    echo "No previous tag found. Listing all changes:"
+    echo "$CHANGES"
 fi
 
 # This script updates the CHANGED file with a new entry containing the current date,
