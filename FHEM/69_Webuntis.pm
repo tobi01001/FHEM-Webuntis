@@ -1798,57 +1798,16 @@ sub exportTT2iCal {
 =item_summary Retrieve timetable data from Webuntis
 =item_summary_DE Stundenplan-Daten von Webuntis auslesen
 =begin html
-
 <a name="Webuntis"></a>
 <div>
 <ul>
 The module reads timetable data from Webuntis school cloud service.
-
-<a name='WebuntisRequirements'></a>
-<b>Requirements</b>
-<ul>
-The following Perl modules must be installed:
-<pre>
-# On Debian/Ubuntu:
-sudo apt-get install -y libdatetime-perl libdatetime-format-strptime-perl libdigest-sha-perl
-
-# On other systems, use CPAN:
-cpan DateTime DateTime::Format::Strptime Digest::SHA
-</pre>
-Additionally, one of these JSON modules is required:
-<ul>
-<li><code>JSON::XS</code> (recommended for performance)</li>
-<li><code>JSON::PP</code> (pure Perl fallback)</li>
-<li><code>Cpanel::JSON::XS</code></li>
-<li><code>JSON::MaybeXS</code></li>
-</ul>
-</ul>
-
-<a name='WebuntisInstallation'></a>
-<b>Installation</b>
-<ul>
-<b>Option 1: FHEM Update (Recommended)</b><br>
-Add this repository to FHEM's update sources for automatic updates:
-<pre>
-update add https://raw.githubusercontent.com/tobi01001/FHEM-Webuntis/main/controls_webuntis.txt
-update
-</pre>
-
-<b>Option 2: Manual Installation</b><br>
-Copy <code>FHEM/69_Webuntis.pm</code> to your FHEM modules directory (typically <code>/opt/fhem/FHEM/</code>) and restart FHEM.
-</ul>
-
 <a name='WebuntisDefine'></a>
 <b>Define</b>
 <ul>
-<code>define &lt;name&gt; Webuntis</code><br><br>
-Example:
-<pre>
-define myWebuntis Webuntis
-</pre>
+<code>define &lt;name&gt; Webuntis</code><br>
 After defining, set your password: <code>set &lt;name&gt; password &lt;password&gt;</code>
 </ul>
-
 <a name='WebuntisGet'></a>
 <b>Get</b>
 <ul>
@@ -1860,178 +1819,63 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <li><a name='getJSONtimeTable'></a><code>getJSONtimeTable</code> - get raw JSON timetable data</li>
 <li><a name='getSimpleTable'></a><code>getSimpleTable</code> - get formatted exception table</li>
 </ul>
-
 <a name='WebuntisSet'></a>
 <b>Set</b>
 <ul>
-<li><a name='password'></a><code>password</code> - set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
+<li><a name='password'></a><code>password</code> - set your WebUntis password. Required initially and when your password changes in WebUntis.</li>
 </ul>
-
 <a name='WebuntisAttr'></a>
 <b>Attributes</b>
 <ul>
-<b>Required Attributes:</b>
 <li><a name='server'></a><code>server</code> - Webuntis server URL (e.g., https://server.webuntis.com)</li>
 <li><a name='school'></a><code>school</code> - your school identifier</li>
 <li><a name='user'></a><code>user</code> - your Webuntis username</li>
 <li><a name='class'></a><code>class</code> - the class for which timetable data should be retrieved</li>
-<br>
-<b>Optional Attributes:</b>
 <li><a name='interval'></a><code>interval</code> - polling interval in seconds, minimum 300 (defaults to 3600)</li>
 <li><a name='DaysTimetable'></a><code>DaysTimetable</code> - number of days to retrieve timetable data for (default: 7)</li>
 <li><a name='startDayTimeTable'></a><code>startDayTimeTable</code> - start day for timetable retrieval (Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday)</li>
 <li><a name='disable'></a><code>disable</code> - disable the module (0/1)</li>
-<br>
-<b>Student-Specific Attributes:</b>
 <li><a name='studentID'></a><code>studentID</code> - student ID for individual timetables</li>
 <li><a name='timeTableMode'></a><code>timeTableMode</code> - class: use class info for timetable / student: use studentId</li>
-<br>
-<b>Exception Handling Attributes:</b>
 <li><a name='exceptionIndicator'></a><code>exceptionIndicator</code> - fields that indicate exceptions</li>
 <li><a name='exceptionFilter'></a><code>exceptionFilter</code> - filter out specific exception values</li>
 <li><a name='excludeSubjects'></a><code>excludeSubjects</code> - subjects to ignore</li>
 <li><a name='considerTimeOfDay'></a><code>considerTimeOfDay</code> - only show future exceptions (yes/no, default: no)</li>
-<br>
-<b>School Year Attributes:</b>
 <li><a name='schoolYearStart'></a><code>schoolYearStart</code> - start date of the school year (YYYY-MM-DD format)</li>
 <li><a name='schoolYearEnd'></a><code>schoolYearEnd</code> - end date of the school year (YYYY-MM-DD format)</li>
-<br>
-<b>iCal Export:</b>
 <li><a name='iCalPath'></a><code>iCalPath</code> - path to write iCal file (must exist and be writable)</li>
-<br>
-<b>Retry Configuration:</b>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximum retry attempts (0-10, default: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initial retry delay in seconds (5-300, default: 30)</li>
-<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximum consecutive authentication errors before password invalidation (1-168, default: 24). When reached, polling stops and password must be updated.</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - max consecutive auth errors before password invalidation (1-168, default: 24)</li>
 </ul>
-
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
 <ul>
 <li><code>state</code> - current module state</li>
 <li><code>lastError</code> - last error message (if any)</li>
-<li><code>authErrorCount</code> - consecutive authentication error count (reset on successful login or password update)</li>
+<li><code>authErrorCount</code> - consecutive authentication error count</li>
 <li><code>exceptionCount</code> - number of current exceptions</li>
 <li><code>exceptionToday</code> - today's exceptions</li>
 <li><code>exceptionTomorrow</code> - tomorrow's exceptions</li>
 <li><code>e_01, e_02, ...</code> - individual exception details</li>
-<li><code>e_authError</code> - synthetic exception for authentication errors (visible to users who only view exceptions)</li>
 <li><code>schoolYearName</code> - current school year name</li>
 <li><code>schoolYearStart</code> - school year start date</li>
 <li><code>schoolYearEnd</code> - school year end date</li>
-<li><code>schoolYearID</code> - school year ID</li>
-</ul>
-
-<a name='WebuntisExamples'></a>
-<b>Example Configurations</b>
-<ul>
-<b>Basic Student Timetable:</b>
-<pre>
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis interval 3600
-set myWebuntis password mysecretpassword
-</pre>
-
-<b>Student-Specific Timetable:</b>
-<pre>
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis timeTableMode student
-attr myWebuntis studentID 12345
-set myWebuntis password mysecretpassword
-</pre>
-
-<b>With iCal Export:</b>
-<pre>
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis iCalPath /opt/fhem/www/ical/
-set myWebuntis password mysecretpassword
-</pre>
-</ul>
-
-<a name='WebuntisTroubleshooting'></a>
-<b>Troubleshooting</b>
-<ul>
-<b>Authentication Issues:</b> If you see "Authentication Error - Update Password", verify your credentials work on the Webuntis web interface and update password with <code>set &lt;name&gt; password &lt;new_password&gt;</code>. Check status with <code>get &lt;name&gt; passwordStatus</code>.<br><br>
-<b>Network Issues:</b> The module automatically retries transient errors (timeouts, connection failures) with exponential backoff. Check the <code>lastError</code> reading for details.<br><br>
-<b>Missing Classes:</b> Run <code>get &lt;name&gt; retrieveClasses</code>, wait a few seconds, then <code>get &lt;name&gt; classes</code>.
-</ul>
-
-<a name='WebuntisSecurity'></a>
-<b>Security Notes</b>
-<ul>
-<li>Passwords are stored securely using FHEM's password store mechanism</li>
-<li>Passwords are never logged (even at debug level)</li>
-<li>The iCal export validates paths to prevent directory traversal attacks</li>
-<li>Use HTTPS URLs for the server attribute</li>
 </ul>
 </ul>
 </div>
 =end html
-
 =begin html_DE
-
 <a name="Webuntis"></a>
 <div>
 <ul>
 Das Modul liest Stundenplan-Daten von Webuntis Schulcloud-Dienst aus.
-
-<a name='WebuntisRequirements'></a>
-<b>Voraussetzungen</b>
-<ul>
-Die folgenden Perl-Module müssen installiert sein:
-<pre>
-# Auf Debian/Ubuntu:
-sudo apt-get install -y libdatetime-perl libdatetime-format-strptime-perl libdigest-sha-perl
-
-# Auf anderen Systemen mit CPAN:
-cpan DateTime DateTime::Format::Strptime Digest::SHA
-</pre>
-Zusätzlich wird eines dieser JSON-Module benötigt:
-<ul>
-<li><code>JSON::XS</code> (empfohlen für Leistung)</li>
-<li><code>JSON::PP</code> (reiner Perl-Fallback)</li>
-<li><code>Cpanel::JSON::XS</code></li>
-<li><code>JSON::MaybeXS</code></li>
-</ul>
-</ul>
-
-<a name='WebuntisInstallation'></a>
-<b>Installation</b>
-<ul>
-<b>Option 1: FHEM Update (Empfohlen)</b><br>
-Füge dieses Repository zu den Update-Quellen von FHEM für automatische Updates hinzu:
-<pre>
-update add https://raw.githubusercontent.com/tobi01001/FHEM-Webuntis/main/controls_webuntis.txt
-update
-</pre>
-
-<b>Option 2: Manuelle Installation</b><br>
-Kopiere <code>FHEM/69_Webuntis.pm</code> in dein FHEM-Modulverzeichnis (typischerweise <code>/opt/fhem/FHEM/</code>) und starte FHEM neu.
-</ul>
-
 <a name='WebuntisDefine'></a>
 <b>Define</b>
 <ul>
-<code>define &lt;name&gt; Webuntis</code><br><br>
-Beispiel:
-<pre>
-define myWebuntis Webuntis
-</pre>
+<code>define &lt;name&gt; Webuntis</code><br>
 Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;password&gt;</code>
 </ul>
-
 <a name='WebuntisGet'></a>
 <b>Get</b>
 <ul>
@@ -2043,121 +1887,48 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <li><a name='getJSONtimeTable'></a><code>getJSONtimeTable</code> - gibt rohe JSON-Stundenplan-Daten zurück</li>
 <li><a name='getSimpleTable'></a><code>getSimpleTable</code> - gibt formatierte Ausnahmetabelle zurück</li>
 </ul>
-
 <a name='WebuntisSet'></a>
 <b>Set</b>
 <ul>
-<li><a name='password'></a><code>password</code> - setze dein WebUntis Passwort. Erforderlich bei der ersten Einrichtung und wenn sich dein Passwort in WebUntis ändert. Das Modul erkennt Authentifizierungsfehler und fordert dich auf, es bei Bedarf zu aktualisieren.</li>
+<li><a name='password'></a><code>password</code> - setze dein WebUntis Passwort. Erforderlich bei der ersten Einrichtung und wenn sich dein Passwort in WebUntis ändert.</li>
 </ul>
-
 <a name='WebuntisAttr'></a>
 <b>Attribute</b>
 <ul>
-<b>Erforderliche Attribute:</b>
 <li><a name='server'></a><code>server</code> - Webuntis Server-URL (z.B. https://server.webuntis.com)</li>
 <li><a name='school'></a><code>school</code> - deine Schulkennung</li>
 <li><a name='user'></a><code>user</code> - dein Webuntis Benutzername</li>
 <li><a name='class'></a><code>class</code> - die Klasse, für die Stundenplan-Daten abgerufen werden sollen</li>
-<br>
-<b>Optionale Attribute:</b>
 <li><a name='interval'></a><code>interval</code> - Polling-Intervall in Sekunden, mindestens 300 (Standard: 3600)</li>
 <li><a name='DaysTimetable'></a><code>DaysTimetable</code> - Anzahl der Tage für Stundenplan-Daten (Standard: 7)</li>
 <li><a name='startDayTimeTable'></a><code>startDayTimeTable</code> - Start-Tag für Stundenplan-Abruf (Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday)</li>
 <li><a name='disable'></a><code>disable</code> - deaktiviere das Modul (0/1)</li>
-<br>
-<b>Schülerspezifische Attribute:</b>
 <li><a name='studentID'></a><code>studentID</code> - Schüler-ID für individuelle Stundenpläne</li>
 <li><a name='timeTableMode'></a><code>timeTableMode</code> - class: Klasseninfo verwenden / student: studentId verwenden</li>
-<br>
-<b>Ausnahme-Behandlung:</b>
 <li><a name='exceptionIndicator'></a><code>exceptionIndicator</code> - Felder, die Ausnahmen anzeigen</li>
 <li><a name='exceptionFilter'></a><code>exceptionFilter</code> - bestimmte Ausnahmewerte herausfiltern</li>
 <li><a name='excludeSubjects'></a><code>excludeSubjects</code> - Fächer ignorieren</li>
 <li><a name='considerTimeOfDay'></a><code>considerTimeOfDay</code> - nur zukünftige Ausnahmen anzeigen (yes/no, Standard: no)</li>
-<br>
-<b>Schuljahr-Attribute:</b>
 <li><a name='schoolYearStart'></a><code>schoolYearStart</code> - Startdatum des Schuljahres (YYYY-MM-DD Format)</li>
 <li><a name='schoolYearEnd'></a><code>schoolYearEnd</code> - Enddatum des Schuljahres (YYYY-MM-DD Format)</li>
-<br>
-<b>iCal Export:</b>
 <li><a name='iCalPath'></a><code>iCalPath</code> - Pfad für iCal-Datei (muss existieren und beschreibbar sein)</li>
-<br>
-<b>Retry-Konfiguration:</b>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximale Wiederholungsversuche (0-10, Standard: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initiale Retry-Verzögerung in Sekunden (5-300, Standard: 30)</li>
-<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximale aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24). Bei Erreichen wird Polling gestoppt und Passwort muss aktualisiert werden.</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - max aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24)</li>
 </ul>
-
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
 <ul>
 <li><code>state</code> - aktueller Modulstatus</li>
 <li><code>lastError</code> - letzte Fehlermeldung (falls vorhanden)</li>
-<li><code>authErrorCount</code> - Zähler aufeinanderfolgender Authentifizierungsfehler (wird bei erfolgreichem Login oder Passwortaktualisierung zurückgesetzt)</li>
+<li><code>authErrorCount</code> - Zähler aufeinanderfolgender Authentifizierungsfehler</li>
 <li><code>exceptionCount</code> - Anzahl aktueller Ausnahmen</li>
 <li><code>exceptionToday</code> - heutige Ausnahmen</li>
 <li><code>exceptionTomorrow</code> - morgige Ausnahmen</li>
 <li><code>e_01, e_02, ...</code> - einzelne Ausnahme-Details</li>
-<li><code>e_authError</code> - synthetische Ausnahme für Authentifizierungsfehler (sichtbar für Benutzer, die nur Ausnahmen anzeigen)</li>
 <li><code>schoolYearName</code> - aktueller Schuljahresname</li>
 <li><code>schoolYearStart</code> - Schuljahres-Startdatum</li>
 <li><code>schoolYearEnd</code> - Schuljahres-Enddatum</li>
-<li><code>schoolYearID</code> - Schuljahres-ID</li>
-</ul>
-
-<a name='WebuntisExamples'></a>
-<b>Beispielkonfigurationen</b>
-<ul>
-<b>Basis Stundenplan:</b>
-<pre>
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis interval 3600
-set myWebuntis password mysecretpassword
-</pre>
-
-<b>Schülerspezifischer Stundenplan:</b>
-<pre>
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis timeTableMode student
-attr myWebuntis studentID 12345
-set myWebuntis password mysecretpassword
-</pre>
-
-<b>Mit iCal Export:</b>
-<pre>
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis iCalPath /opt/fhem/www/ical/
-set myWebuntis password mysecretpassword
-</pre>
-</ul>
-
-<a name='WebuntisTroubleshooting'></a>
-<b>Fehlerbehebung</b>
-<ul>
-<b>Authentifizierungsprobleme:</b> Bei "Authentication Error - Update Password" überprüfe deine Zugangsdaten auf der Webuntis-Weboberfläche und aktualisiere das Passwort mit <code>set &lt;name&gt; password &lt;neues_password&gt;</code>. Prüfe Status mit <code>get &lt;name&gt; passwordStatus</code>.<br><br>
-<b>Netzwerkprobleme:</b> Das Modul wiederholt automatisch vorübergehende Fehler (Timeouts, Verbindungsfehler) mit exponentiellem Backoff. Überprüfe das <code>lastError</code>-Reading für Details.<br><br>
-<b>Fehlende Klassen:</b> Führe <code>get &lt;name&gt; retrieveClasses</code> aus, warte einige Sekunden, dann <code>get &lt;name&gt; classes</code>.
-</ul>
-
-<a name='WebuntisSecurity'></a>
-<b>Sicherheitshinweise</b>
-<ul>
-<li>Passwörter werden sicher mit FHEMs Passwort-Speichermechanismus gespeichert</li>
-<li>Passwörter werden niemals geloggt (auch nicht im Debug-Modus)</li>
-<li>Der iCal-Export validiert Pfade, um Directory-Traversal-Angriffe zu verhindern</li>
-<li>Verwende HTTPS-URLs für das server-Attribut</li>
 </ul>
 </ul>
 </div>
