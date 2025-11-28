@@ -355,7 +355,7 @@ sub Set {
         my $err = StorePassword( $hash, $arg );
         # Reset password validation status and auth error count when new password is set
         delete $hash->{helper}{passwordValid};
-        delete $hash->{helper}{authErrorCount};
+        $hash->{helper}{authErrorCount} = 0;
         delete $hash->{READINGS}{lastError}; # Clear any previous authentication errors
         readingsDelete($hash, "e_authError"); # Clear auth error exception
         readingsSingleUpdate($hash, "authErrorCount", 0, 1); # Reset the counter reading
@@ -799,7 +799,7 @@ sub parseLogin {
             # Clear the auth error exception reading if it exists
             readingsDelete($hash, "e_authError");
         }
-        delete $hash->{helper}{authErrorCount};
+        $hash->{helper}{authErrorCount} = 0;
         $hash->{helper}{passwordValid} = 1;
         readingsSingleUpdate($hash, "authErrorCount", 0, 1);
         delete $hash->{READINGS}{lastError}; # Clear any previous error
@@ -1411,7 +1411,7 @@ sub handleAuthenticationError {
     my $futureTime = DateTime->now->add(hours => 1);
     my $futureDate = format_date_for_api($futureTime);
     my $futureTimeStr = $futureTime->strftime('%H%M');
-    my $endTimeStr = $futureTime->add(minutes => 30)->strftime('%H%M');
+    my $endTimeStr = $futureTime->clone->add(minutes => 30)->strftime('%H%M');
     
     my $exceptionReading = sprintf(
         'date="%s" startTime="%s" endTime="%s" code="authError" info="Authentication Error (%d/%d): %s - Please update password"',
