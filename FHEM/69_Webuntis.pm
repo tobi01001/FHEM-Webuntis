@@ -74,6 +74,8 @@ my $time_formatter = DateTime::Format::Strptime->new(
 
 use Cwd;
 use Encode;
+use File::Temp qw(tempfile);
+use File::Copy qw(move);
 
 #
 my $version = WEBUNTIS_VERSION;
@@ -178,11 +180,11 @@ sub parse_date_from_api {
     my $dt;
     eval {
         $dt = $date_formatter->parse_datetime($date_string);
-    };
-    if ($@) {
+        1;
+    } or do {
         # Fallback for malformed dates
-        return undef;
-    }
+        return;
+    };
     return $dt;
 }
 
@@ -367,7 +369,7 @@ sub Set {
             Log3 $name, LOG_DEBUG, "[$name] Password successfully updated";
             readingsSingleUpdate( $hash, "lastError", "none", 1 ); # Clear any previous error
             readingsSingleUpdate( $hash, "state", "password updated", 1 );
-            return undef;
+            return;
         }
 
     }
@@ -748,7 +750,7 @@ sub login {
     my $debug_body = { %body };
     $debug_body->{params}{password} = "***REDACTED***" if exists $debug_body->{params}{password};
     Log3($name, LOG_DEBUG, "login params: ".Dumper($debug_body));
-    Log3($name,LOG_DEBUG,"login params: ".Dumper(\%body));
+    # Do not log raw body containing password - use redacted version above
     Log3($name,LOG_DEBUG,"login header: ".Dumper($param));
     my ( $err, $data ) = HttpUtils_NonblockingGet($param);
 
@@ -1196,10 +1198,10 @@ sub parseTT {
     return;
 }
 
-sub getJSONtimeTable($) {
+sub getJSONtimeTable {
 	my ($hash) = @_;
 	my $name = $hash->{NAME};
-    my $JSON = $hash->{helper}{tt} // "Please call get $name timetsble first";
+    my $JSON = $hash->{helper}{tt} // "Please call get $name timetable first";
 	return Dumper($JSON);
 }
 
@@ -1650,6 +1652,19 @@ sub exportTT2iCal {
 
 		Log3 $name, 5, $name . " : Webuntis_exportTT2iCal - Saving TT for " . $user . " to  : " . $iCalFileName;
 		
+		# Path traversal prevention: ensure the final path is within the specified directory
+		# by checking that the resolved path starts with the expected directory
+		my $resolvedPath = Cwd::abs_path($IcalFileDir);
+		if (!defined $resolvedPath) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot resolve directory path: " . $IcalFileDir;
+			return;
+		}
+		# Ensure user attribute doesn't contain path traversal attempts
+		if ($user =~ /\.\./ || $user =~ /[\/\\]/) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Invalid user name (contains path characters): " . $user;
+			return;
+		}
+		
 		# Check if directory exists and is writable
 		if (!-d $IcalFileDir) {
 			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Directory does not exist: " . $IcalFileDir;
@@ -1661,17 +1676,43 @@ sub exportTT2iCal {
 			return;
 		}
 		
-		if (!open(FH, '>', $iCalFileName)) {
-			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot open file for writing: " . $iCalFileName . " - " . $!;
+		# Atomic write: write to temp file first, then rename
+		my ($tmp_fh, $tmp_filename);
+		eval {
+			($tmp_fh, $tmp_filename) = tempfile(
+				"untis_TT_XXXXXX",
+				DIR => $IcalFileDir,
+				SUFFIX => '.ics.tmp',
+				UNLINK => 0
+			);
+			1;
+		} or do {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot create temp file in: " . $IcalFileDir . " - " . ($@ || $!);
+			return;
+		};
+		
+		# Write with explicit UTF-8 encoding using lexical file handle
+		binmode($tmp_fh, ':encoding(UTF-8)');
+		print $tmp_fh $iCalFileContent;
+		if (!close($tmp_fh)) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot close temp file: " . $tmp_filename . " - " . $!;
+			unlink($tmp_filename);
 			return;
 		}
-		print FH $iCalFileContent;
-		close(FH);
+		
+		# Atomic rename
+		if (!move($tmp_filename, $iCalFileName)) {
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot rename temp file to: " . $iCalFileName . " - " . $!;
+			unlink($tmp_filename);
+			return;
+		}
+		
+		Log3 $name, 4, $name . " : Webuntis_exportTT2iCal - Successfully wrote iCal file: " . $iCalFileName;
 	}
 	### Skipping export
 	else {
 		### Log Entry for debugging purposes
-		Log3 $name, 4, $name . " : Webuntis_exportTT2iCal - Attribute \"iCalPath\" mot provided - Skipping export.";
+		Log3 $name, 4, $name . " : Webuntis_exportTT2iCal - Attribute \"iCalPath\" not provided - Skipping export.";
 	}
 	return;
 }
