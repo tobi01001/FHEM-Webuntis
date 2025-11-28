@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.04 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
 #   0.3.03 - 2025-09-16 Update version to 0.3.03, new getters, fixes, tobi
 #   0.3.02 - 2025-09-16 Update version to 0.3.02, improved documentation / html help sections
 #   0.3.01 - 2024-10-15 Improve password update handling with detailed logging and state updates, tobi
@@ -40,7 +41,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.03";
+use constant WEBUNTIS_VERSION => "0.3.04";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -364,7 +365,7 @@ sub Set {
             return $err;
         } else {
             Log3 $name, LOG_DEBUG, "[$name] Password successfully updated";
-            readingsSingleUpdate( $hash, "lastError", "", 1 ); # Clear any previous error
+            readingsSingleUpdate( $hash, "lastError", "none", 1 ); # Clear any previous error
             readingsSingleUpdate( $hash, "state", "password updated", 1 );
             return undef;
         }
@@ -892,6 +893,7 @@ sub getTT {
     if($startdate gt $enddate) {
         Log3 $name, LOG_ERROR, "[$name] Start date ($startdate) is after end date ($enddate). Please check your settings.";
         readingsSingleUpdate( $hash, "state", "Error: Start date after end date", 1 );
+        readingsSingleUpdate( $hash, "lastError", "Start date ($startdate) is after end date ($enddate)", 1 );
         
         return;
     }
@@ -1325,6 +1327,8 @@ sub clearTimerOperation {
 sub isAuthenticationError {
     my ($error, $errorCode) = @_;
     
+    Log3 "Webuntis", LOG_DEBUG, "isAuthenticationError called with error: $error, errorCode: $errorCode";
+
     return 0 if !defined($error);
     
     # Check for WebUntis-specific authentication error codes
@@ -1387,6 +1391,7 @@ sub handleRetryOrFail {
     
     # Check for authentication errors first - these should not be retried
     if (isAuthenticationError($error, $errorCode)) {
+        Log3 $name, LOG_ERROR, "[$name] Detected authentication error in $context: $error (code: $errorCode)";
         return handleAuthenticationError($hash, $error, $errorCode, $context);
     }
     
@@ -1407,6 +1412,7 @@ sub handleRetryOrFail {
         
         Log3 $name, LOG_WARNING, "[$name] Transient error in $context (attempt $hash->{helper}{retryCount}/$maxRetries): $error - retrying in ${delay}s";
         readingsSingleUpdate($hash, "state", "Retry $hash->{helper}{retryCount}/$maxRetries: $error", 1);
+        readingsSingleUpdate($hash, "lastError", "Retry $hash->{helper}{retryCount}/$maxRetries: $error", 1);
         
         # Schedule retry with exponential backoff
         my $next = int(gettimeofday()) + $delay;
@@ -1418,11 +1424,16 @@ sub handleRetryOrFail {
         my $retryInfo = $hash->{helper}{retryCount} > 0 ? " after $hash->{helper}{retryCount} retries" : "";
         Log3 $name, LOG_ERROR, "[$name] Permanent error in $context$retryInfo: $error";
         readingsSingleUpdate($hash, "state", "Error: $error$retryInfo", 1);
+        readingsSingleUpdate($hash, "lastError", "Error: $error$retryInfo", 1);
         
         # Reset retry count and delete queue - processing stops
         delete $hash->{helper}{retryCount};
         delete $hash->{helper}{cmdQueue};
         
+        # There is something wrong on our end or the webserver - we retry in two hours
+        my $next = int(gettimeofday()) + 7200;
+        InternalTimer($next, 'FHEM::Webuntis::retryProcessing', $hash, 0);
+
         return 0; # Not handled - queue deleted, processing stops
     }
 }
