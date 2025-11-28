@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.09 - 2025-11-08 fixed help section
 #   0.3.08 - 2025-11-28 Improved password invalidation logic - auth errors now use counter with threshold, copilot
 #   0.3.07 - 2025-11-28 Security fixes, robustness improvements, enhanced documentation, copilot
 #   0.3.06 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
@@ -43,7 +44,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.08";
+use constant WEBUNTIS_VERSION => "0.3.09";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -1798,12 +1799,10 @@ sub exportTT2iCal {
 =item_summary Retrieve timetable data from Webuntis
 =item_summary_DE Stundenplan-Daten von Webuntis auslesen
 =begin html
-
 <a name="Webuntis"></a>
 <div>
 <ul>
 The module reads timetable data from Webuntis school cloud service.
-
 <a name='WebuntisRequirements'></a>
 <b>Requirements</b>
 <ul>
@@ -1811,7 +1810,6 @@ The following Perl modules must be installed:
 <pre>
 # On Debian/Ubuntu:
 sudo apt-get install -y libdatetime-perl libdatetime-format-strptime-perl libdigest-sha-perl
-
 # On other systems, use CPAN:
 cpan DateTime DateTime::Format::Strptime Digest::SHA
 </pre>
@@ -1823,7 +1821,6 @@ Additionally, one of these JSON modules is required:
 <li><code>JSON::MaybeXS</code></li>
 </ul>
 </ul>
-
 <a name='WebuntisInstallation'></a>
 <b>Installation</b>
 <ul>
@@ -1833,11 +1830,9 @@ Add this repository to FHEM's update sources for automatic updates:
 update add https://raw.githubusercontent.com/tobi01001/FHEM-Webuntis/main/controls_webuntis.txt
 update
 </pre>
-
 <b>Option 2: Manual Installation</b><br>
 Copy <code>FHEM/69_Webuntis.pm</code> to your FHEM modules directory (typically <code>/opt/fhem/FHEM/</code>) and restart FHEM.
 </ul>
-
 <a name='WebuntisDefine'></a>
 <b>Define</b>
 <ul>
@@ -1848,7 +1843,6 @@ define myWebuntis Webuntis
 </pre>
 After defining, set your password: <code>set &lt;name&gt; password &lt;password&gt;</code>
 </ul>
-
 <a name='WebuntisGet'></a>
 <b>Get</b>
 <ul>
@@ -1860,13 +1854,11 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <li><a name='getJSONtimeTable'></a><code>getJSONtimeTable</code> - get raw JSON timetable data</li>
 <li><a name='getSimpleTable'></a><code>getSimpleTable</code> - get formatted exception table</li>
 </ul>
-
 <a name='WebuntisSet'></a>
 <b>Set</b>
 <ul>
 <li><a name='password'></a><code>password</code> - set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
 </ul>
-
 <a name='WebuntisAttr'></a>
 <b>Attributes</b>
 <ul>
@@ -1904,7 +1896,6 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <li><a name='retryDelay'></a><code>retryDelay</code> - initial retry delay in seconds (5-300, default: 30)</li>
 <li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximum consecutive authentication errors before password invalidation (1-168, default: 24). When reached, polling stops and password must be updated.</li>
 </ul>
-
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
 <ul>
@@ -1921,7 +1912,6 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <li><code>schoolYearEnd</code> - school year end date</li>
 <li><code>schoolYearID</code> - school year ID</li>
 </ul>
-
 <a name='WebuntisExamples'></a>
 <b>Example Configurations</b>
 <ul>
@@ -1935,7 +1925,6 @@ attr myWebuntis class 5a
 attr myWebuntis interval 3600
 set myWebuntis password mysecretpassword
 </pre>
-
 <b>Student-Specific Timetable:</b>
 <pre>
 define myWebuntis Webuntis
@@ -1947,7 +1936,6 @@ attr myWebuntis timeTableMode student
 attr myWebuntis studentID 12345
 set myWebuntis password mysecretpassword
 </pre>
-
 <b>With iCal Export:</b>
 <pre>
 define myWebuntis Webuntis
@@ -1959,7 +1947,6 @@ attr myWebuntis iCalPath /opt/fhem/www/ical/
 set myWebuntis password mysecretpassword
 </pre>
 </ul>
-
 <a name='WebuntisTroubleshooting'></a>
 <b>Troubleshooting</b>
 <ul>
@@ -1967,7 +1954,6 @@ set myWebuntis password mysecretpassword
 <b>Network Issues:</b> The module automatically retries transient errors (timeouts, connection failures) with exponential backoff. Check the <code>lastError</code> reading for details.<br><br>
 <b>Missing Classes:</b> Run <code>get &lt;name&gt; retrieveClasses</code>, wait a few seconds, then <code>get &lt;name&gt; classes</code>.
 </ul>
-
 <a name='WebuntisSecurity'></a>
 <b>Security Notes</b>
 <ul>
@@ -1981,12 +1967,10 @@ set myWebuntis password mysecretpassword
 =end html
 
 =begin html_DE
-
 <a name="Webuntis"></a>
 <div>
 <ul>
 Das Modul liest Stundenplan-Daten von Webuntis Schulcloud-Dienst aus.
-
 <a name='WebuntisRequirements'></a>
 <b>Voraussetzungen</b>
 <ul>
@@ -1994,7 +1978,6 @@ Die folgenden Perl-Module müssen installiert sein:
 <pre>
 # Auf Debian/Ubuntu:
 sudo apt-get install -y libdatetime-perl libdatetime-format-strptime-perl libdigest-sha-perl
-
 # Auf anderen Systemen mit CPAN:
 cpan DateTime DateTime::Format::Strptime Digest::SHA
 </pre>
@@ -2006,7 +1989,6 @@ Zusätzlich wird eines dieser JSON-Module benötigt:
 <li><code>JSON::MaybeXS</code></li>
 </ul>
 </ul>
-
 <a name='WebuntisInstallation'></a>
 <b>Installation</b>
 <ul>
@@ -2016,11 +1998,9 @@ Füge dieses Repository zu den Update-Quellen von FHEM für automatische Updates
 update add https://raw.githubusercontent.com/tobi01001/FHEM-Webuntis/main/controls_webuntis.txt
 update
 </pre>
-
 <b>Option 2: Manuelle Installation</b><br>
 Kopiere <code>FHEM/69_Webuntis.pm</code> in dein FHEM-Modulverzeichnis (typischerweise <code>/opt/fhem/FHEM/</code>) und starte FHEM neu.
 </ul>
-
 <a name='WebuntisDefine'></a>
 <b>Define</b>
 <ul>
@@ -2031,7 +2011,6 @@ define myWebuntis Webuntis
 </pre>
 Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;password&gt;</code>
 </ul>
-
 <a name='WebuntisGet'></a>
 <b>Get</b>
 <ul>
@@ -2043,13 +2022,11 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <li><a name='getJSONtimeTable'></a><code>getJSONtimeTable</code> - gibt rohe JSON-Stundenplan-Daten zurück</li>
 <li><a name='getSimpleTable'></a><code>getSimpleTable</code> - gibt formatierte Ausnahmetabelle zurück</li>
 </ul>
-
 <a name='WebuntisSet'></a>
 <b>Set</b>
 <ul>
 <li><a name='password'></a><code>password</code> - setze dein WebUntis Passwort. Erforderlich bei der ersten Einrichtung und wenn sich dein Passwort in WebUntis ändert. Das Modul erkennt Authentifizierungsfehler und fordert dich auf, es bei Bedarf zu aktualisieren.</li>
 </ul>
-
 <a name='WebuntisAttr'></a>
 <b>Attribute</b>
 <ul>
@@ -2087,7 +2064,6 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <li><a name='retryDelay'></a><code>retryDelay</code> - initiale Retry-Verzögerung in Sekunden (5-300, Standard: 30)</li>
 <li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximale aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24). Bei Erreichen wird Polling gestoppt und Passwort muss aktualisiert werden.</li>
 </ul>
-
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
 <ul>
@@ -2104,7 +2080,6 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <li><code>schoolYearEnd</code> - Schuljahres-Enddatum</li>
 <li><code>schoolYearID</code> - Schuljahres-ID</li>
 </ul>
-
 <a name='WebuntisExamples'></a>
 <b>Beispielkonfigurationen</b>
 <ul>
@@ -2118,7 +2093,6 @@ attr myWebuntis class 5a
 attr myWebuntis interval 3600
 set myWebuntis password mysecretpassword
 </pre>
-
 <b>Schülerspezifischer Stundenplan:</b>
 <pre>
 define myWebuntis Webuntis
@@ -2130,7 +2104,6 @@ attr myWebuntis timeTableMode student
 attr myWebuntis studentID 12345
 set myWebuntis password mysecretpassword
 </pre>
-
 <b>Mit iCal Export:</b>
 <pre>
 define myWebuntis Webuntis
@@ -2142,7 +2115,6 @@ attr myWebuntis iCalPath /opt/fhem/www/ical/
 set myWebuntis password mysecretpassword
 </pre>
 </ul>
-
 <a name='WebuntisTroubleshooting'></a>
 <b>Fehlerbehebung</b>
 <ul>
@@ -2150,7 +2122,6 @@ set myWebuntis password mysecretpassword
 <b>Netzwerkprobleme:</b> Das Modul wiederholt automatisch vorübergehende Fehler (Timeouts, Verbindungsfehler) mit exponentiellem Backoff. Überprüfe das <code>lastError</code>-Reading für Details.<br><br>
 <b>Fehlende Klassen:</b> Führe <code>get &lt;name&gt; retrieveClasses</code> aus, warte einige Sekunden, dann <code>get &lt;name&gt; classes</code>.
 </ul>
-
 <a name='WebuntisSecurity'></a>
 <b>Sicherheitshinweise</b>
 <ul>
