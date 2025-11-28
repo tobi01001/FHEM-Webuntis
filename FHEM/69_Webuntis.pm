@@ -1822,7 +1822,7 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <a name='WebuntisSet'></a>
 <b>Set</b>
 <ul>
-<li><a name='password'></a><code>password</code> - set your WebUntis password. Required initially and when your password changes in WebUntis.</li>
+<li><a name='password'></a><code>password</code> - set your WebUntis password. Required initially and when your password changes in WebUntis. The module will detect authentication failures and prompt you to update it when needed.</li>
 </ul>
 <a name='WebuntisAttr'></a>
 <b>Attributes</b>
@@ -1846,14 +1846,14 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <li><a name='iCalPath'></a><code>iCalPath</code> - path to write iCal file (must exist and be writable)</li>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximum retry attempts (0-10, default: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initial retry delay in seconds (5-300, default: 30)</li>
-<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - max consecutive auth errors before password invalidation (1-168, default: 24)</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - max consecutive auth errors before password invalidation (1-168, default: 24). When reached, polling stops and password must be updated.</li>
 </ul>
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
 <ul>
 <li><code>state</code> - current module state</li>
 <li><code>lastError</code> - last error message (if any)</li>
-<li><code>authErrorCount</code> - consecutive authentication error count</li>
+<li><code>authErrorCount</code> - consecutive authentication error count (reset on successful login or password update)</li>
 <li><code>exceptionCount</code> - number of current exceptions</li>
 <li><code>exceptionToday</code> - today's exceptions</li>
 <li><code>exceptionTomorrow</code> - tomorrow's exceptions</li>
@@ -1890,7 +1890,7 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <a name='WebuntisSet'></a>
 <b>Set</b>
 <ul>
-<li><a name='password'></a><code>password</code> - setze dein WebUntis Passwort. Erforderlich bei der ersten Einrichtung und wenn sich dein Passwort in WebUntis ändert.</li>
+<li><a name='password'></a><code>password</code> - setze dein WebUntis Passwort. Erforderlich bei der ersten Einrichtung und wenn sich dein Passwort in WebUntis ändert. Das Modul erkennt Authentifizierungsfehler und fordert dich auf, es bei Bedarf zu aktualisieren.</li>
 </ul>
 <a name='WebuntisAttr'></a>
 <b>Attribute</b>
@@ -1914,14 +1914,14 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <li><a name='iCalPath'></a><code>iCalPath</code> - Pfad für iCal-Datei (muss existieren und beschreibbar sein)</li>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximale Wiederholungsversuche (0-10, Standard: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initiale Retry-Verzögerung in Sekunden (5-300, Standard: 30)</li>
-<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - max aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24)</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - max aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24). Bei Erreichen wird Polling gestoppt und Passwort muss aktualisiert werden.</li>
 </ul>
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
 <ul>
 <li><code>state</code> - aktueller Modulstatus</li>
 <li><code>lastError</code> - letzte Fehlermeldung (falls vorhanden)</li>
-<li><code>authErrorCount</code> - Zähler aufeinanderfolgender Authentifizierungsfehler</li>
+<li><code>authErrorCount</code> - Zähler aufeinanderfolgender Authentifizierungsfehler (wird bei erfolgreichem Login oder Passwortaktualisierung zurückgesetzt)</li>
 <li><code>exceptionCount</code> - Anzahl aktueller Ausnahmen</li>
 <li><code>exceptionToday</code> - heutige Ausnahmen</li>
 <li><code>exceptionTomorrow</code> - morgige Ausnahmen</li>
