@@ -1702,7 +1702,7 @@ sub exportTT2iCal {
 		
 		# Atomic rename
 		if (!move($tmp_filename, $iCalFileName)) {
-			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot rename temp file to: " . $iCalFileName . " - " . $!;
+			Log3 $name, 2, $name . " : Webuntis_exportTT2iCal - ERROR: Cannot move temp file to: " . $iCalFileName . " - " . $!;
 			unlink($tmp_filename);
 			return;
 		}
