@@ -4,6 +4,8 @@
 
 The `69_Webuntis.pm` module retrieves timetable data from the Webuntis school cloud service for use in the FHEM home automation system.
 
+**Note:** Detailed documentation including all attributes, commands, and examples is available directly in FHEM via the built-in help system (click the `?` next to the device).
+
 ## Requirements
 
 ### Required Perl Modules
@@ -35,10 +37,26 @@ The module requires these FHEM internal modules (automatically available in FHEM
 
 ## Installation
 
+### Option 1: FHEM Update (Recommended)
+
+Add this repository to FHEM's update sources for automatic updates:
+
+```
+update add https://raw.githubusercontent.com/tobi01001/FHEM-Webuntis/main/controls_webuntis.txt
+update
+```
+
+This will:
+- Install the module automatically
+- Enable automatic updates when new versions are released
+- Handle all dependencies correctly
+
+### Option 2: Manual Installation
+
 1. Copy `FHEM/69_Webuntis.pm` to your FHEM modules directory (typically `/opt/fhem/FHEM/`)
 2. Restart FHEM or reload the module
 
-## Basic Setup
+## Quick Start
 
 ### Step 1: Define the Device
 
@@ -61,179 +79,21 @@ attr myWebuntis class 5a
 set myWebuntis password your_secret_password
 ```
 
-## Available Commands
-
-### Get Commands
-
-| Command | Description |
-|---------|-------------|
-| `get myWebuntis timetable` | Retrieve timetable data from Webuntis |
-| `get myWebuntis classes` | Display available classes (cached) |
-| `get myWebuntis retrieveClasses` | Fetch classes from server |
-| `get myWebuntis schoolYear` | Retrieve school year boundaries |
-| `get myWebuntis passwordStatus` | Check password validation status |
-| `get myWebuntis getJSONtimeTable` | Get raw JSON timetable data |
-| `get myWebuntis getSimpleTable` | Get formatted exception table |
-
-### Set Commands
-
-| Command | Description |
-|---------|-------------|
-| `set myWebuntis password <password>` | Set/update your Webuntis password |
-
-## Attributes
-
-### Required Attributes
-
-| Attribute | Description | Example |
-|-----------|-------------|---------|
-| `server` | Webuntis server URL | `https://server.webuntis.com` |
-| `school` | Your school identifier | `myschool` |
-| `user` | Your Webuntis username | `student123` |
-| `class` | Class to retrieve timetable for | `5a` |
-
-### Optional Attributes
-
-| Attribute | Description | Default |
-|-----------|-------------|---------|
-| `interval` | Polling interval in seconds (min 300) | `3600` |
-| `DaysTimetable` | Number of days to retrieve | `7` |
-| `startDayTimeTable` | Start day for timetable | `Today` |
-| `disable` | Disable the module (0/1) | `0` |
-
-### Student-Specific Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `studentID` | Student ID for individual timetables |
-| `timeTableMode` | `class` or `student` mode |
-
-### Exception Handling Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `exceptionIndicator` | Fields that indicate exceptions |
-| `exceptionFilter` | Filter out specific exception values |
-| `excludeSubjects` | Subjects to ignore |
-| `considerTimeOfDay` | Only show future exceptions (`yes`/`no`) |
-
-### School Year Attributes
-
-| Attribute | Format | Description |
-|-----------|--------|-------------|
-| `schoolYearStart` | `YYYY-MM-DD` | Start of school year |
-| `schoolYearEnd` | `YYYY-MM-DD` | End of school year |
-
-### iCal Export Attributes
-
-| Attribute | Description |
-|-----------|-------------|
-| `iCalPath` | Directory path for iCal export (must exist and be writable) |
-
-### Retry Configuration
-
-| Attribute | Range | Default | Description |
-|-----------|-------|---------|-------------|
-| `maxRetries` | 0-10 | 3 | Max retry attempts |
-| `retryDelay` | 5-300 | 30 | Initial retry delay (seconds) |
-
-## Example Configurations
-
-### Basic Student Timetable
+### Step 4: Retrieve Timetable
 
 ```
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis interval 3600
-set myWebuntis password mysecretpassword
+get myWebuntis timetable
 ```
 
-### Student-Specific Timetable
+## Further Documentation
 
-```
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis timeTableMode student
-attr myWebuntis studentID 12345
-set myWebuntis password mysecretpassword
-```
+For complete documentation including:
+- All available commands and attributes
+- Example configurations
+- Troubleshooting guide
+- Security notes
 
-### With iCal Export
-
-```
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis iCalPath /opt/fhem/www/ical/
-set myWebuntis password mysecretpassword
-```
-
-### With Exception Filtering
-
-```
-define myWebuntis Webuntis
-attr myWebuntis server https://myschool.webuntis.com
-attr myWebuntis school myschool
-attr myWebuntis user parent_account
-attr myWebuntis class 5a
-attr myWebuntis exceptionIndicator code,info,lstext,lstype,substText
-attr myWebuntis exceptionFilter lstext="1.HJ"
-attr myWebuntis excludeSubjects Sport,Kunst
-attr myWebuntis considerTimeOfDay yes
-set myWebuntis password mysecretpassword
-```
-
-## Readings
-
-The module creates the following readings:
-
-| Reading | Description |
-|---------|-------------|
-| `state` | Current module state |
-| `lastError` | Last error message (if any) |
-| `exceptionCount` | Number of current exceptions |
-| `exceptionToday` | Today's exceptions |
-| `exceptionTomorrow` | Tomorrow's exceptions |
-| `e_01`, `e_02`, ... | Individual exception details |
-| `schoolYearName` | Current school year name |
-| `schoolYearStart` | School year start date |
-| `schoolYearEnd` | School year end date |
-| `schoolYearID` | School year ID |
-
-## Troubleshooting
-
-### Authentication Issues
-
-If you see "Authentication Error - Update Password":
-1. Verify your credentials work on the Webuntis web interface
-2. Update password: `set myWebuntis password <new_password>`
-3. Check password status: `get myWebuntis passwordStatus`
-
-### Network Issues
-
-The module automatically retries transient errors (timeouts, connection failures) with exponential backoff. Check the `lastError` reading for details.
-
-### Missing Classes
-
-If the class dropdown is empty:
-1. Run `get myWebuntis retrieveClasses`
-2. Wait a few seconds
-3. Run `get myWebuntis classes` to see available options
-
-## Security Notes
-
-- Passwords are stored securely using FHEM's password store mechanism
-- Passwords are never logged (even at debug level)
-- The iCal export validates paths to prevent directory traversal attacks
-- Use HTTPS URLs for the server attribute
+Please refer to the built-in FHEM help by clicking the `?` icon next to your Webuntis device, or see the POD documentation at the end of the module file.
 
 ## Version History
 
