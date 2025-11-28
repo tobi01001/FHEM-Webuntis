@@ -21,7 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
-#   0.3.04 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
+#   0.3.06 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
 #   0.3.03 - 2025-09-16 Update version to 0.3.03, new getters, fixes, tobi
 #   0.3.02 - 2025-09-16 Update version to 0.3.02, improved documentation / html help sections
 #   0.3.01 - 2024-10-15 Improve password update handling with detailed logging and state updates, tobi
@@ -41,7 +41,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.04";
+use constant WEBUNTIS_VERSION => "0.3.06";
 
 use List::Util qw(any first);
 use HttpUtils;
