@@ -1,3 +1,11 @@
+2025-11-28 0.3.08
+- Add agent manifest for Copilot FHEM Perl Expert with capabilities and guidelines
+- Fix code review issues: DateTime mutation bug and helper/reading consistency
+- Implement improved password invalidation logic with error counter and threshold
+- Initial plan
+- Rename fhem-expert.agent.md to agent.md
+- Merge pull request #28 from tobi01001/copilot/review-fhem-69-webuntis
+
 2025-11-28 0.3.07
 - Add version 0.3.07 to changelog
 - Bump version to 0.3.07, use log level constants, enhance documentation
