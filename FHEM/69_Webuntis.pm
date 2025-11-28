@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.07 - 2025-11-28 Security fixes, robustness improvements, enhanced documentation, copilot
 #   0.3.06 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
 #   0.3.03 - 2025-09-16 Update version to 0.3.03, new getters, fixes, tobi
 #   0.3.02 - 2025-09-16 Update version to 0.3.02, improved documentation / html help sections
