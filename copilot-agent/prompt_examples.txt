@@ -1,0 +1,13 @@
+# Short examples of prompts to use with the agent
+
+1) Refactor request
+"Refactor the Webuntis FHEM module to extract HTTP fetch and JSON parsing into a helper library, add retries with exponential backoff, and include tests for the parsing code. Keep all defines and readings unchanged for backward compatibility."
+
+2) Documentation request
+"Generate the FHEM help block for the Webuntis module that includes define syntax, parameters, environment/credential examples, and example automation using notify and readings."
+
+3) Bugfix request
+"Users report intermittent failures when Webuntis API times out. Propose a robust error handling approach and produce a minimal patch to implement a configurable timeout and retry, including a unit test."
+
+4) New feature
+"Add support for multiple accounts/instances of Webuntis per FHEM host and provide an example configuration and migration notes."
