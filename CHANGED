@@ -1,3 +1,15 @@
+2025-11-28 0.3.07
+- Add version 0.3.07 to changelog
+- Bump version to 0.3.07, use log level constants, enhance documentation
+- Fix error message to say 'move' instead of 'rename' for accuracy
+- Fix security and robustness issues in 69_Webuntis.pm, add USAGE.md
+- Initial plan
+- Add FHEM Perl Expert agent manifest documentation
+- Add initial implementation of FHEM Perl Expert agent with templates, prompts, and manifest
+- Add initial implementation of Copilot FHEM Perl Expert agent with templates and examples
+- Merge pull request #27 from tobi01001/copilot-agent-fhem-perl
+- Add Copilot FHEM Perl Expert agent: manifest, docs, templates
+
 2025-11-28 0.3.06
 - Update release notes and timestamp in controls_webuntis.txt
 
