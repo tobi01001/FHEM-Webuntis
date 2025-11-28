@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.08 - 2025-11-28 Improved password invalidation logic - auth errors now use counter with threshold, copilot
 #   0.3.07 - 2025-11-28 Security fixes, robustness improvements, enhanced documentation, copilot
 #   0.3.06 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
 #   0.3.03 - 2025-09-16 Update version to 0.3.03, new getters, fixes, tobi
@@ -42,7 +43,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.07";
+use constant WEBUNTIS_VERSION => "0.3.08";
 
 use List::Util qw(any first);
 use HttpUtils;
@@ -98,7 +99,7 @@ my $EMPTY = q{};
 my $SPACE = q{ };
 my $COMMA = q{,};
 
-my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "considerTimeOfDay:yes,no", "disable" );
+my @WUattr = ( "server", "school", "user", "exceptionIndicator", "exceptionFilter:textField-long", "excludeSubjects", "iCalPath", "interval", "DaysTimetable", "studentID", "timeTableMode:class,student", "startDayTimeTable:Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday", "schoolYearStart", "schoolYearEnd", "maxRetries", "retryDelay", "authErrorThreshold", "considerTimeOfDay:yes,no", "disable" );
 
 
 ## Import der FHEM Funktionen
@@ -352,9 +353,12 @@ sub Set {
     if ( $cmd eq 'password' ) {
 
         my $err = StorePassword( $hash, $arg );
-        # Reset password validation status when new password is set
+        # Reset password validation status and auth error count when new password is set
         delete $hash->{helper}{passwordValid};
+        delete $hash->{helper}{authErrorCount};
         delete $hash->{READINGS}{lastError}; # Clear any previous authentication errors
+        readingsDelete($hash, "e_authError"); # Clear auth error exception
+        readingsSingleUpdate($hash, "authErrorCount", 0, 1); # Reset the counter reading
         
         if ( !IsDisabled($name) && defined( ReadPassword($hash) ) ) {
             my $next = int( gettimeofday() ) + 1;
@@ -589,6 +593,11 @@ sub Attr {
                 return qq (Attribute retryDelay for $name has to be a number between 5 and 300 seconds);
             }
         }
+        if ( $attr eq 'authErrorThreshold' ) {
+            if ( $aVal !~ /^\d+$/ || $aVal < 1 || $aVal > 168 ) {
+                return qq (Attribute authErrorThreshold for $name has to be a number between 1 and 168 (hours));
+            }
+        }
     }
 
     if ( $cmd eq "del" ) {
@@ -781,9 +790,18 @@ sub parseLogin {
         return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin", $errorCode);
         return;
     } else {
-        # Success - reset retry count and mark password as valid
+        # Success - reset retry count, mark password as valid, and reset auth error counters
         delete $hash->{helper}{retryCount};
+        
+        # Reset authentication error count on successful login
+        if (defined($hash->{helper}{authErrorCount}) && $hash->{helper}{authErrorCount} > 0) {
+            Log3 $name, LOG_SEND, "[$name] Authentication successful - resetting authErrorCount from $hash->{helper}{authErrorCount} to 0";
+            # Clear the auth error exception reading if it exists
+            readingsDelete($hash, "e_authError");
+        }
+        delete $hash->{helper}{authErrorCount};
         $hash->{helper}{passwordValid} = 1;
+        readingsSingleUpdate($hash, "authErrorCount", 0, 1);
         delete $hash->{READINGS}{lastError}; # Clear any previous error
 		
 		my $pType = $json->{result}->{personType} // "None";
@@ -1375,17 +1393,72 @@ sub handleAuthenticationError {
     my ($hash, $error, $errorCode, $context) = @_;
     my $name = $hash->{NAME};
     
-    # Mark password as invalid
-    $hash->{helper}{passwordValid} = 0;
+    # Initialize auth error count if not present
+    $hash->{helper}{authErrorCount} //= 0;
+    $hash->{helper}{authErrorCount}++;
+    
+    my $authErrorThreshold = AttrNum($name, 'authErrorThreshold', 24);
+    my $currentCount = $hash->{helper}{authErrorCount};
+    
+    # Update auth error count reading
+    readingsSingleUpdate($hash, "authErrorCount", $currentCount, 1);
+    
+    my $message = "Authentication error ($currentCount/$authErrorThreshold): $error. Please check and update password if needed: set $name password <new_password>";
+    Log3 $name, LOG_WARNING, "[$name] $message";
+    
+    # Create a synthetic timetable exception entry so users who only view exceptions can see the error
+    # Schedule it 1 hour in the future and update it hourly
+    my $futureTime = DateTime->now->add(hours => 1);
+    my $futureDate = format_date_for_api($futureTime);
+    my $futureTimeStr = $futureTime->strftime('%H%M');
+    my $endTimeStr = $futureTime->add(minutes => 30)->strftime('%H%M');
+    
+    my $exceptionReading = sprintf(
+        'date="%s" startTime="%s" endTime="%s" code="authError" info="Authentication Error (%d/%d): %s - Please update password"',
+        $futureDate, $futureTimeStr, $endTimeStr, $currentCount, $authErrorThreshold, $error
+    );
+    readingsSingleUpdate($hash, "e_authError", $exceptionReading, 1);
+    
+    # Check if we've exceeded the threshold
+    if ($currentCount >= $authErrorThreshold) {
+        # Threshold exceeded - invalidate password and stop polling
+        $hash->{helper}{passwordValid} = 0;
+        delete $hash->{helper}{retryCount};
+        delete $hash->{helper}{cmdQueue};
+        
+        my $finalMessage = "Authentication failed after $currentCount consecutive errors. Password invalidated. Please update: set $name password <new_password>";
+        Log3 $name, LOG_ERROR, "[$name] $finalMessage";
+        readingsSingleUpdate($hash, "state", "Authentication Error - Update Password", 1);
+        readingsSingleUpdate($hash, "lastError", $finalMessage, 1);
+        
+        # Update the exception to indicate password is now invalidated
+        $exceptionReading = sprintf(
+            'date="%s" startTime="%s" endTime="%s" code="authError" info="CRITICAL: Password invalidated after %d errors - Polling stopped. Update password immediately!"',
+            $futureDate, $futureTimeStr, $endTimeStr, $currentCount
+        );
+        readingsSingleUpdate($hash, "e_authError", $exceptionReading, 1);
+        
+        return 0; # Not handled - processing stops completely
+    }
+    
+    # Below threshold - don't invalidate password, schedule hourly recheck
     delete $hash->{helper}{retryCount};
     delete $hash->{helper}{cmdQueue};
     
-    my $message = "Authentication failed - Invalid credentials. Please update your password using: set $name password <new_password>";
-    Log3 $name, LOG_ERROR, "[$name] $message ($error)";
-    readingsSingleUpdate($hash, "state", "Authentication Error - Update Password", 1);
+    readingsSingleUpdate($hash, "state", "Auth Error - Recheck in 1h ($currentCount/$authErrorThreshold)", 1);
     readingsSingleUpdate($hash, "lastError", $message, 1);
     
-    return 0; # Not handled - processing stops
+    # Schedule recheck in 1 hour (3600 seconds)
+    my $next = int(gettimeofday()) + 3600;
+    RemoveInternalTimer($hash);  # Clear any existing timer
+    InternalTimer($next, 'FHEM::Webuntis::wuTimer', $hash, 0);
+    
+    Log3 $name, LOG_SEND, "[$name] Auth error $currentCount/$authErrorThreshold - scheduling recheck in 1 hour";
+    
+    # Clear timer running flag since we're done with this cycle
+    delete $hash->{helper}{timerRunning};
+    
+    return 0; # Not handled - but we've scheduled a recheck
 }
 
 sub handleRetryOrFail {
@@ -1829,6 +1902,7 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <b>Retry Configuration:</b>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximum retry attempts (0-10, default: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initial retry delay in seconds (5-300, default: 30)</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximum consecutive authentication errors before password invalidation (1-168, default: 24). When reached, polling stops and password must be updated.</li>
 </ul>
 
 <a name='WebuntisReadings'></a>
@@ -1836,10 +1910,12 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <ul>
 <li><code>state</code> - current module state</li>
 <li><code>lastError</code> - last error message (if any)</li>
+<li><code>authErrorCount</code> - consecutive authentication error count (reset on successful login or password update)</li>
 <li><code>exceptionCount</code> - number of current exceptions</li>
 <li><code>exceptionToday</code> - today's exceptions</li>
 <li><code>exceptionTomorrow</code> - tomorrow's exceptions</li>
 <li><code>e_01, e_02, ...</code> - individual exception details</li>
+<li><code>e_authError</code> - synthetic exception for authentication errors (visible to users who only view exceptions)</li>
 <li><code>schoolYearName</code> - current school year name</li>
 <li><code>schoolYearStart</code> - school year start date</li>
 <li><code>schoolYearEnd</code> - school year end date</li>
@@ -2009,6 +2085,7 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <b>Retry-Konfiguration:</b>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximale Wiederholungsversuche (0-10, Standard: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initiale Retry-Verzögerung in Sekunden (5-300, Standard: 30)</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximale aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24). Bei Erreichen wird Polling gestoppt und Passwort muss aktualisiert werden.</li>
 </ul>
 
 <a name='WebuntisReadings'></a>
@@ -2016,10 +2093,12 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <ul>
 <li><code>state</code> - aktueller Modulstatus</li>
 <li><code>lastError</code> - letzte Fehlermeldung (falls vorhanden)</li>
+<li><code>authErrorCount</code> - Zähler aufeinanderfolgender Authentifizierungsfehler (wird bei erfolgreichem Login oder Passwortaktualisierung zurückgesetzt)</li>
 <li><code>exceptionCount</code> - Anzahl aktueller Ausnahmen</li>
 <li><code>exceptionToday</code> - heutige Ausnahmen</li>
 <li><code>exceptionTomorrow</code> - morgige Ausnahmen</li>
 <li><code>e_01, e_02, ...</code> - einzelne Ausnahme-Details</li>
+<li><code>e_authError</code> - synthetische Ausnahme für Authentifizierungsfehler (sichtbar für Benutzer, die nur Ausnahmen anzeigen)</li>
 <li><code>schoolYearName</code> - aktueller Schuljahresname</li>
 <li><code>schoolYearStart</code> - Schuljahres-Startdatum</li>
 <li><code>schoolYearEnd</code> - Schuljahres-Enddatum</li>
