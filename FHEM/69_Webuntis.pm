@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.09 - 2025-11-08 fixed help section
 #   0.3.08 - 2025-11-28 Improved password invalidation logic - auth errors now use counter with threshold, copilot
 #   0.3.07 - 2025-11-28 Security fixes, robustness improvements, enhanced documentation, copilot
 #   0.3.06 - 2025-09-16 Update version to 0.3.04, fix for exception filtering considering time of day, tobi
@@ -43,7 +44,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.08";
+use constant WEBUNTIS_VERSION => "0.3.09";
 
 use List::Util qw(any first);
 use HttpUtils;

@@ -1,3 +1,17 @@
+2025-11-28 0.3.09
+- Restore full documentation with Requirements, Installation, Examples, Troubleshooting, and Security sections
+- Add back important documentation details per code review
+- Fix FHEM help section by removing blank lines in POD HTML blocks
+- Initial plan
+- Merge pull request #30 from tobi01001/copilot/improve-password-invalidation-logic
+
+2025-11-28 0.3.08
+- Restore full documentation with Requirements, Installation, Examples, Troubleshooting, and Security sections
+- Add back important documentation details per code review
+- Fix FHEM help section by removing blank lines in POD HTML blocks
+- Initial plan
+- Merge pull request #30 from tobi01001/copilot/improve-password-invalidation-logic
+
 2025-11-28 0.3.08
 - Add agent manifest for Copilot FHEM Perl Expert with capabilities and guidelines
 - Fix code review issues: DateTime mutation bug and helper/reading consistency
