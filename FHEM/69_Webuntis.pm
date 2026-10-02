@@ -211,6 +211,35 @@ sub is_scalar_value {
     return defined $value && !ref $value;
 }
 
+sub is_valid_server_url {
+    my ($url) = @_;
+    return defined $url
+      && $url =~ m{\Ahttps://[^/\s?#@]+(?::\d+)?(?:/[^\s?#]*)?/?\z}i;
+}
+
+sub get_server_url {
+    my ( $hash, $context ) = @_;
+    my $server = AttrVal( $hash->{NAME}, "server", "" );
+    return $server if is_valid_server_url($server);
+
+    handleRetryOrFail( $hash, "Invalid HTTPS server URL", $context );
+    return;
+}
+
+sub is_valid_api_time {
+    my ($time) = @_;
+    return 0 unless is_scalar_value($time) && $time =~ /\A(?:\d{3}|\d{4})\z/;
+
+    my ( $hour, $minute );
+    if ( length($time) == 3 ) {
+        ( $hour, $minute ) = ( substr( $time, 0, 1 ), substr( $time, 1, 2 ) );
+    }
+    else {
+        ( $hour, $minute ) = ( substr( $time, 0, 2 ), substr( $time, 2, 2 ) );
+    }
+    return $hour < 24 && $minute < 60;
+}
+
 sub contains_literal {
     my ( $value, $literal ) = @_;
     return 0 unless is_scalar_value($value) && is_scalar_value($literal);
@@ -243,8 +272,9 @@ sub is_valid_timetable_result {
           && is_scalar_value($item->{startTime})
           && is_scalar_value($item->{endTime})
           && $item->{date} =~ /\A\d{8}\z/
-          && $item->{startTime} =~ /\A\d{1,4}\z/
-          && $item->{endTime} =~ /\A\d{1,4}\z/
+          && parse_date_from_api( $item->{date} )
+          && is_valid_api_time( $item->{startTime} )
+          && is_valid_api_time( $item->{endTime} )
           && ( !exists $item->{id} || !ref($item->{id}) );
 
         for my $field (qw(code info lstype substText lstext activityType)) {
@@ -527,7 +557,9 @@ sub getSchoolYearAPI {
     );
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseSchoolYear" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseSchoolYear;
     $param->{hash}     = $hash;
     Log3($name,LOG_SEND,"getSchoolYearAPI sends".$param->{data}." to ".$param->{url});
@@ -627,9 +659,7 @@ sub Attr {
             return;
         }
         if ( $attr eq 'server' ) {
-            if ( !defined $aVal
-                || $aVal !~ m{\Ahttps://[^/\s?#@]+(?::\d+)?(?:/[^\s?#]*)?/?\z}i )
-            {
+            if ( !is_valid_server_url($aVal) ) {
                 return qq (Attribute server for $name has to be an HTTPS URL without credentials, query, or fragment);
             }
         }
@@ -855,7 +885,9 @@ sub login {
 
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseLogin" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseLogin;
     $param->{hash}     = $hash;
     # Log only non-sensitive info at normal level
@@ -972,7 +1004,9 @@ sub getClass {
     );
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseClass" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseClass;
     $param->{hash}     = $hash;
     Log3($name,LOG_SEND,"getClass sends".$param->{data}." to ".$param->{url});
@@ -1092,7 +1126,9 @@ sub getTT {
 
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseTT" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseTT;
     $param->{hash}     = $hash;
     Log3($name,LOG_SEND,"getTT sends".$param->{data}." to ".$param->{url});
@@ -1675,8 +1711,10 @@ sub handleRetryOrFail {
         
         # Start a fresh retrieval after a prolonged delay.
         RemoveInternalTimer($hash);
-        my $next = int(gettimeofday()) + 7200;
-        InternalTimer($next, 'FHEM::Webuntis::wuTimer', $hash, 0);
+        if ( !IsDisabled($name) && AttrNum( $name, 'interval', 3600 ) >= WU_MINIMUM_INTERVAL ) {
+            my $next = int(gettimeofday()) + 7200;
+            InternalTimer($next, 'FHEM::Webuntis::wuTimer', $hash, 0);
+        }
 
         return 0; # Not handled - queue deleted, processing stops
     }
