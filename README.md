@@ -38,3 +38,12 @@ attr myWebuntis retryDelay 30
 - Invalid requests (400, 404)
 - Configuration errors
 - Invalid credentials
+
+## Troubleshooting
+
+If the FHEM log contains a `DateTime::TimeZone` warning that the Olson database
+versions differ, the installed timezone data and the base `DateTime::TimeZone`
+Perl package are out of sync (often after a partial system update). This
+warning is emitted by Perl, not by Webuntis, and is not otherwise handled by
+the module. Update the relevant Perl/timezone packages together and restart
+FHEM; the warning typically disappears once their versions match.
