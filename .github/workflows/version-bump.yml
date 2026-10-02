@@ -1,9 +1,11 @@
 name: Automatic Version Bump
 
 # Automatically bumps the patch version of FHEM/69_Webuntis.pm on every push
-# to main, and adds a changelog entry. The bump commit includes "[skip ci]"
-# in its message so pushing it does not retrigger this (or any other)
-# workflow.
+# to main, adds a changelog entry, and regenerates controls_webuntis.txt
+# (the FHEM update-control file) with the new timestamp and file size so
+# FHEM's update mechanism picks up the change. The bump commit includes
+# "[skip ci]" in its message so pushing it does not retrigger this (or any
+# other) workflow.
 on:
   push:
     branches:
@@ -46,12 +48,22 @@ jobs:
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "current_version=$CURRENT" >> "$GITHUB_OUTPUT"
 
+      - name: Update controls_webuntis.txt
+        if: steps.bump.outputs.new_version != steps.bump.outputs.current_version
+        run: |
+          set -euo pipefail
+          FILE="FHEM/69_Webuntis.pm"
+          CONTROLS="controls_webuntis.txt"
+          TIMESTAMP=$(date -u +%Y-%m-%d_%H:%M:%S)
+          SIZE=$(stat -c%s "$FILE")
+          echo "UPD $TIMESTAMP $SIZE $FILE" > "$CONTROLS"
+
       - name: Commit and push version bump
         if: steps.bump.outputs.new_version != steps.bump.outputs.current_version
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add FHEM/69_Webuntis.pm
+          git add FHEM/69_Webuntis.pm controls_webuntis.txt
           git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
           git push
