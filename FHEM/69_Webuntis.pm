@@ -1795,9 +1795,9 @@ sub exportTT2iCal {
 
 
 =pod
-=item_helper
-=item_summary Retrieve timetable data from Webuntis
-=item_summary_DE Stundenplan-Daten von Webuntis auslesen
+=item helper
+=item summary Retrieve timetable data from Webuntis
+=item summary_DE Stundenplan-Daten von Webuntis auslesen
 =begin html
 <a name="Webuntis"></a>
 <div>
