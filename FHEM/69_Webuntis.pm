@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.12 - 2026-10-02 Merge pull request #41 from tobi01001/copilot/update-changed-file
 #   0.3.11 - 2026-10-02 Harden Webuntis lifecycle, retries, and response handling
 #   0.3.10 - 2026-10-02 Automatic version bump, github-actions
 #   0.3.09 - 2025-11-08 fixed help section
@@ -46,7 +47,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.11";
+use constant WEBUNTIS_VERSION => "0.3.12";
 
 use List::Util qw(any first);
 use HttpUtils;

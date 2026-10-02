@@ -1,3 +1,8 @@
+2026-10-02 0.3.12
+- Record controls size after module update
+- Add meaningful module version changelog summaries
+- Preserve CHANGED history formatting
+
 2026-10-02 0.3.11
 - Harden Webuntis lifecycle, retries, and response handling
 
