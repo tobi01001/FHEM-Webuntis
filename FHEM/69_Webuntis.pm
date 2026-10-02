@@ -21,6 +21,7 @@
 #
 ##############################################################################
 #   Changelog:
+#   0.3.11 - 2026-10-02 Automatic version bump, github-actions
 #   0.3.10 - 2026-10-02 Automatic version bump, github-actions
 #   0.3.09 - 2025-11-08 fixed help section
 #   0.3.08 - 2025-11-28 Improved password invalidation logic - auth errors now use counter with threshold, copilot
@@ -45,7 +46,7 @@ use warnings;
 
 package FHEM::Webuntis;
 
-use constant WEBUNTIS_VERSION => "0.3.10";
+use constant WEBUNTIS_VERSION => "0.3.11";
 
 use List::Util qw(any first);
 use HttpUtils;
