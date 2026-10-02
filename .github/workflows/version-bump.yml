@@ -1,0 +1,57 @@
+name: Automatic Version Bump
+
+# Automatically bumps the patch version of FHEM/69_Webuntis.pm on every push
+# to main, and adds a changelog entry. The bump commit includes "[skip ci]"
+# in its message so pushing it does not retrigger this (or any other)
+# workflow.
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  bump-version:
+    runs-on: ubuntu-latest
+    # Guard against loops even though "[skip ci]" already prevents GitHub
+    # from running workflows on the bump commit itself.
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      !contains(github.event.head_commit.message, '[skip ci]')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump module version
+        id: bump
+        run: |
+          set -euo pipefail
+          FILE="FHEM/69_Webuntis.pm"
+
+          CURRENT=$(grep -oP 'WEBUNTIS_VERSION\s*=>\s*"\K[0-9]+\.[0-9]+\.[0-9]+' "$FILE")
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          # Use base-10 explicitly so zero-padded values like "09" aren't
+          # misread as invalid octal numbers.
+          NEW_PATCH=$(printf '%02d' $((10#$PATCH + 1)))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          TODAY=$(date -u +%Y-%m-%d)
+
+          sed -i "s/WEBUNTIS_VERSION\s*=>\s*\"$CURRENT\"/WEBUNTIS_VERSION => \"$NEW_VERSION\"/" "$FILE"
+          sed -i "0,/^#   Changelog:/s//#   Changelog:\n#   $NEW_VERSION - $TODAY Automatic version bump, github-actions/" "$FILE"
+
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          echo "current_version=$CURRENT" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push version bump
+        if: steps.bump.outputs.new_version != steps.bump.outputs.current_version
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add FHEM/69_Webuntis.pm
+          git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
+          git push
