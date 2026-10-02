@@ -192,6 +192,107 @@ sub parse_date_from_api {
     return $dt;
 }
 
+sub parse_school_year_date {
+    my ($date) = @_;
+    return unless defined $date && $date =~ /\A\d{4}-\d{2}-\d{2}\z/;
+
+    my ($year, $month, $day) = split /-/, $date;
+    my $dt = eval { DateTime->new( year => $year, month => $month, day => $day ) };
+    return unless $dt;
+    return $dt->strftime('%Y%m%d');
+}
+
+sub isActive {
+    my ($hash) = @_;
+    return defined $hash && !$hash->{helper}{deleted};
+}
+
+sub is_scalar_value {
+    my ($value) = @_;
+    return defined $value && !ref $value;
+}
+
+sub is_valid_server_url {
+    my ($url) = @_;
+    return defined $url
+      && $url =~ m{\Ahttps://[^/\s?#@]+(?::\d+)?(?:/[^\s?#]*)?/?\z}i;
+}
+
+sub get_server_url {
+    my ( $hash, $context ) = @_;
+    my $server = AttrVal( $hash->{NAME}, "server", "" );
+    return $server if is_valid_server_url($server);
+
+    handleRetryOrFail( $hash, "Invalid HTTPS server URL", $context );
+    return;
+}
+
+sub is_valid_api_time {
+    my ($time) = @_;
+    return 0 unless is_scalar_value($time) && $time =~ /\A(?:\d{3}|\d{4})\z/;
+
+    my ( $hour, $minute );
+    if ( length($time) == 3 ) {
+        ( $hour, $minute ) = ( substr( $time, 0, 1 ), substr( $time, 1, 2 ) );
+    }
+    else {
+        ( $hour, $minute ) = ( substr( $time, 0, 2 ), substr( $time, 2, 2 ) );
+    }
+    return $hour < 24 && $minute < 60;
+}
+
+sub contains_literal {
+    my ( $value, $literal ) = @_;
+    return 0 unless is_scalar_value($value) && is_scalar_value($literal);
+    return index( $value, $literal ) >= 0;
+}
+
+sub handle_json_rpc_error {
+    my ($hash, $json, $context) = @_;
+    return 0 unless exists $json->{error} && defined $json->{error};
+
+    my $rpc_error = $json->{error};
+    if ( ref($rpc_error) ne 'HASH'
+        || !is_scalar_value($rpc_error->{message})
+        || ( exists $rpc_error->{code} && ref($rpc_error->{code}) ) )
+    {
+        handleRetryOrFail($hash, 'Malformed JSON-RPC error response', $context);
+        return 1;
+    }
+    handleRetryOrFail($hash, $rpc_error->{message}, $context, $rpc_error->{code});
+    return 1;
+}
+
+sub is_valid_timetable_result {
+    my ($result) = @_;
+    return 0 unless ref($result) eq 'ARRAY';
+
+    for my $item (@{$result}) {
+        return 0 unless ref($item) eq 'HASH'
+          && is_scalar_value($item->{date})
+          && is_scalar_value($item->{startTime})
+          && is_scalar_value($item->{endTime})
+          && $item->{date} =~ /\A\d{8}\z/
+          && parse_date_from_api( $item->{date} )
+          && is_valid_api_time( $item->{startTime} )
+          && is_valid_api_time( $item->{endTime} )
+          && ( !exists $item->{id} || !ref($item->{id}) );
+
+        for my $field (qw(code info lstype substText lstext activityType)) {
+            return 0 if exists $item->{$field} && ref($item->{$field});
+        }
+        for my $field (qw(kl su ro te)) {
+            next unless exists $item->{$field};
+            return 0 unless ref($item->{$field}) eq 'ARRAY';
+            for my $element (@{ $item->{$field} }) {
+                return 0 unless ref($element) eq 'HASH';
+                return 0 if grep { exists $element->{$_} && ref($element->{$_}) } qw(longname name);
+            }
+        }
+    }
+    return 1;
+}
+
 sub get_today_as_string {
     my $today = DateTime->now;
     return format_date_for_api($today);
@@ -298,6 +399,7 @@ sub Define {
 
     $hash->{NAME}    = $name;
     $hash->{VERSION} = $version;
+    delete $hash->{helper}{deleted};
     if ( AttrVal( $name, "exceptionIndicator", $EMPTY ) eq $EMPTY ) {
         ::CommandAttr( undef, $name . " exceptionIndicator code,info,lstext,lstype,substText" );
     }
@@ -325,10 +427,13 @@ sub Define {
 ###################################
 sub Undefine {
     my $hash = shift;
+    $hash->{helper}{deleted} = 1;
     RemoveInternalTimer($hash);
     DevIo_CloseDev($hash);
     # Clear any running timer operations
     clearTimerOperation($hash);
+    delete $hash->{helper}{activeCmd};
+    delete $hash->{helper}{cookies};
     return;
 }
 ###################################
@@ -453,7 +558,9 @@ sub getSchoolYearAPI {
     );
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseSchoolYear" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseSchoolYear;
     $param->{hash}     = $hash;
     Log3($name,LOG_SEND,"getSchoolYearAPI sends".$param->{data}." to ".$param->{url});
@@ -463,6 +570,7 @@ sub getSchoolYearAPI {
 sub parseSchoolYear {
     my ( $param, $err, $data ) = @_;
     my $hash = $param->{hash};
+    return unless isActive($hash);
     my $name = $hash->{NAME};
 
     if ($err) {
@@ -470,15 +578,24 @@ sub parseSchoolYear {
         return;
     }
     $data = latin1ToUtf8($data);
-    Log3( $name, LOG_RECEIVE, "getSchoolYear received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        return if handleRetryOrFail($hash, "No JSON received for SchoolYear", "parseSchoolYear");
+        return if handleRetryOrFail($hash, "Malformed JSON received for SchoolYear", "parseSchoolYear");
         return;
     }
-    if ( $json->{error} ) {
-        my $errorCode = $json->{error}{code};
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseSchoolYear", $errorCode);
+    return if handle_json_rpc_error($hash, $json, "parseSchoolYear");
+    if ( ref($json->{result}) ne 'ARRAY'
+        || grep {
+            ref($_) ne 'HASH'
+              || !is_scalar_value($_->{startDate})
+              || !is_scalar_value($_->{endDate})
+              || $_->{startDate} !~ /\A\d{8}\z/
+              || $_->{endDate} !~ /\A\d{8}\z/
+              || !parse_date_from_api($_->{startDate})
+              || !parse_date_from_api($_->{endDate})
+        } @{ $json->{result} } )
+    {
+        return if handleRetryOrFail($hash, "Malformed school year result", "parseSchoolYear");
         return;
     }
 
@@ -527,22 +644,25 @@ sub Attr {
 
     if ( $cmd eq 'set' ) {
         if ( $attr eq 'interval' ) {
-
-            # restrict interval to 5 minutes
-            if ( $aVal > WU_MINIMUM_INTERVAL ) {
+            if ( !defined $aVal || $aVal !~ /\A\d+\z/
+                || ( $aVal != 0 && $aVal < WU_MINIMUM_INTERVAL ) )
+            {
+                return qq (Interval for $name has to be 0 or an integer of at least 300 seconds);
+            }
+            if ( $aVal >= WU_MINIMUM_INTERVAL ) {
                 my $next = int( gettimeofday() ) + 1;
                 InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
                 return;
-            }
-
-            # message if interval is less than 5 minutes
-            if ( $aVal > 0 ) {
-                return qq (Interval for $name has to be > 5 minutes (300 seconds) or 0 to disable);
             }
             RemoveInternalTimer($hash);
             # Clear any running timer operations when interval is disabled
             delete $hash->{helper}{timerRunning};
             return;
+        }
+        if ( $attr eq 'server' ) {
+            if ( !is_valid_server_url($aVal) ) {
+                return qq (Attribute server for $name has to be an HTTPS URL without credentials, query, or fragment);
+            }
         }
         if ( $attr eq 'disable' ) {
             if ( $aVal == 1 ) {
@@ -565,7 +685,7 @@ sub Attr {
         }
         # Validate schoolYearStart: format and logical consistency
         if ( $attr eq 'schoolYearStart' ) {
-            if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
+            if ( !parse_school_year_date($aVal) ) {
                 return qq (Attribute schoolYearStart for $name has to be in format YYYY-MM-DD);
             }
             # Check logical consistency with schoolYearEnd if it exists
@@ -576,7 +696,7 @@ sub Attr {
         }
         # Validate schoolYearEnd: format and logical consistency
         if ( $attr eq 'schoolYearEnd' ) {
-            if ( $aVal !~ /^\d{4}\-\d{2}\-\d{2}$/ ) {
+            if ( !parse_school_year_date($aVal) ) {
                 return qq (Attribute schoolYearEnd for $name has to be in format YYYY-MM-DD);
             }
             # Check logical consistency with schoolYearStart if it exists
@@ -597,7 +717,7 @@ sub Attr {
         }
         if ( $attr eq 'authErrorThreshold' ) {
             if ( $aVal !~ /^\d+$/ || $aVal < 1 || $aVal > 168 ) {
-                return qq (Attribute authErrorThreshold for $name has to be a number between 1 and 168 (hours));
+                return qq (Attribute authErrorThreshold for $name has to be a number between 1 and 168 consecutive authentication errors);
             }
         }
     }
@@ -622,6 +742,7 @@ sub Attr {
 
 sub wuTimer {
     my $hash = shift;
+    return unless isActive($hash);
 
     my $name = $hash->{NAME};
     
@@ -638,12 +759,23 @@ sub wuTimer {
     $hash->{helper}{timerRunning} = 1;
     
     RemoveInternalTimer($hash);
-    getTimeTable($hash);
+    my $result = getTimeTable($hash);
     Log3 $name, LOG_RECEIVE, qq([$name]: Starting Timer);
-    
-    # Schedule next timer - will be rescheduled when current operation completes
-    my $next = int( gettimeofday() ) + AttrNum( $name, 'interval', 3600 );
-    InternalTimer( $next, 'FHEM::Webuntis::wuTimer', $hash, 0 );
+    if (defined $result) {
+        delete $hash->{helper}{timerRunning};
+        scheduleNextPoll($hash);
+    }
+    return;
+}
+
+sub scheduleNextPoll {
+    my ($hash) = @_;
+    return unless isActive($hash);
+    my $name = $hash->{NAME};
+    my $interval = AttrNum($name, 'interval', 3600);
+    return if IsDisabled($name) || $interval < WU_MINIMUM_INTERVAL;
+    RemoveInternalTimer($hash);
+    InternalTimer(int(gettimeofday()) + $interval, 'FHEM::Webuntis::wuTimer', $hash, 0);
     return;
 }
 
@@ -719,6 +851,7 @@ sub getTimeTable {
         or !ReadPassword($hash)
         or AttrVal( $name, "class",  "NA" ) eq "NA" )
     {
+        delete $hash->{helper}{timerRunning};
         return "Please maintain Attributes first";
     }
     push @{ $hash->{helper}{cmdQueue} }, \&login;
@@ -753,17 +886,19 @@ sub login {
 
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseLogin" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseLogin;
     $param->{hash}     = $hash;
     # Log only non-sensitive info at normal level
     Log3($name, LOG_SEND, "login sends to " . $param->{url} . " for user " . AttrVal($name, "user", $EMPTY));
     # Log full data at debug level with password redacted
-    my $debug_body = { %body };
-    $debug_body->{params}{password} = "***REDACTED***" if exists $debug_body->{params}{password};
+    my $debug_body = {
+        %body,
+        params => { %{ $body{params} }, password => "***REDACTED***" }
+    };
     Log3($name, LOG_DEBUG, "login params: ".Dumper($debug_body));
-    # Do not log raw body containing password - use redacted version above
-    Log3($name,LOG_DEBUG,"login header: ".Dumper($param));
     my ( $err, $data ) = HttpUtils_NonblockingGet($param);
 
 }
@@ -773,6 +908,7 @@ sub parseLogin {
 
     my ( $param, $err, $data ) = @_;
     my $hash    = $param->{hash};
+    return unless isActive($hash);
     my $name    = $hash->{NAME};
     my $header  = $param->{httpheader};
     my $cookies = getCookies( $hash, $header );
@@ -783,13 +919,17 @@ sub parseLogin {
     }
 
     my $json = safe_decode_json( $hash, $data );
-    Log3( $name, LOG_RECEIVE, "login received $data");
     if (!$json) {
-        return if handleRetryOrFail($hash, "No JSON after Login", "parseLogin");
+        return if handleRetryOrFail($hash, "Malformed JSON after Login", "parseLogin");
         return;
-    } elsif ( $json->{error} ) {
-        my $errorCode = $json->{error}{code};
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseLogin", $errorCode);
+    }
+    return if handle_json_rpc_error($hash, $json, "parseLogin");
+    if ( ref($json->{result}) ne 'HASH'
+        || ( exists $json->{result}{personType} && ref($json->{result}{personType}) )
+        || ( exists $json->{result}{personId} && ref($json->{result}{personId}) )
+        || ( exists $json->{result}{klasseId} && ref($json->{result}{klasseId}) ) )
+    {
+        return if handleRetryOrFail($hash, "Malformed login result", "parseLogin");
         return;
     } else {
         # Success - reset retry count, mark password as valid, and reset auth error counters
@@ -865,7 +1005,9 @@ sub getClass {
     );
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseClass" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseClass;
     $param->{hash}     = $hash;
     Log3($name,LOG_SEND,"getClass sends".$param->{data}." to ".$param->{url});
@@ -906,6 +1048,26 @@ sub getTT {
     # Limit to school year boundaries if set (check both attributes and readings)
     my $schoolYearStart = AttrVal($name, 'schoolYearStart', '') || ReadingsVal($name, 'schoolYearStart', '');
     my $schoolYearEnd   = AttrVal($name, 'schoolYearEnd', '') || ReadingsVal($name, 'schoolYearEnd', '');
+    if ( AttrVal($name, 'schoolYearStart', '') ne '' ) {
+        $schoolYearStart = parse_school_year_date($schoolYearStart);
+        if ( !defined $schoolYearStart ) {
+            readingsSingleUpdate($hash, "state", "Error: Invalid schoolYearStart", 1);
+            readingsSingleUpdate($hash, "lastError", "Invalid schoolYearStart; use YYYY-MM-DD", 1);
+            delete $hash->{helper}{timerRunning};
+            scheduleNextPoll($hash);
+            return "Invalid schoolYearStart";
+        }
+    }
+    if ( AttrVal($name, 'schoolYearEnd', '') ne '' ) {
+        $schoolYearEnd = parse_school_year_date($schoolYearEnd);
+        if ( !defined $schoolYearEnd ) {
+            readingsSingleUpdate($hash, "state", "Error: Invalid schoolYearEnd", 1);
+            readingsSingleUpdate($hash, "lastError", "Invalid schoolYearEnd; use YYYY-MM-DD", 1);
+            delete $hash->{helper}{timerRunning};
+            scheduleNextPoll($hash);
+            return "Invalid schoolYearEnd";
+        }
+    }
     if ($schoolYearStart ne '' && $startdate lt $schoolYearStart) {
         $startdate = $schoolYearStart;
     }
@@ -918,7 +1080,9 @@ sub getTT {
         readingsSingleUpdate( $hash, "state", "Error: Start date after end date", 1 );
         readingsSingleUpdate( $hash, "lastError", "Start date ($startdate) is after end date ($enddate)", 1 );
         
-        return;
+        delete $hash->{helper}{timerRunning};
+        scheduleNextPoll($hash);
+        return "Start date after end date";
     }
 
     my $param->{header} = {
@@ -963,7 +1127,9 @@ sub getTT {
 
     $param->{data}     = encode_json( \%body );
     $param->{method}   = "POST";
-    $param->{url}      = AttrVal( $name, "server", "" ) . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
+    my $server = get_server_url( $hash, "parseTT" );
+    return unless defined $server;
+    $param->{url}      = $server . "/WebUntis/jsonrpc.do?school=" . AttrVal( $name, "school", $EMPTY );
     $param->{callback} = \&parseTT;
     $param->{hash}     = $hash;
     Log3($name,LOG_SEND,"getTT sends".$param->{data}." to ".$param->{url});
@@ -974,6 +1140,7 @@ sub getTT {
 sub parseClass {
     my ( $param, $err, $data ) = @_;
     my $hash = $param->{hash};
+    return unless isActive($hash);
     my $name = $hash->{NAME};
 
     if ($err) {
@@ -984,12 +1151,19 @@ sub parseClass {
     Log3( $name, LOG_RECEIVE, "getClass received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        return if handleRetryOrFail($hash, "No JSON received for Class", "parseClass");
+        return if handleRetryOrFail($hash, "Malformed JSON received for Class", "parseClass");
         return;
     }
-    if ( $json->{error} ) {
-        my $errorCode = $json->{error}{code};
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseClass", $errorCode);
+    return if handle_json_rpc_error($hash, $json, "parseClass");
+    if ( ref($json->{result}) ne 'ARRAY'
+        || grep {
+            ref($_) ne 'HASH'
+              || !is_scalar_value($_->{id})
+              || !is_scalar_value($_->{name})
+              || ( exists $_->{longName} && ref($_->{longName}) )
+        } @{ $json->{result} } )
+    {
+        return if handleRetryOrFail($hash, "Malformed class result", "parseClass");
         return;
     }
 
@@ -1042,15 +1216,15 @@ sub parseClass {
 	Log3 $name, LOG_DEBUG, "[$name] Classlist (html): $html}" ;
 	#$hash->{AttrList} = join( $SPACE, @WUattr ).$SPACE."class:".$classes.$SPACE.$readingFnAttributes;
 	$hash->{".AttrList"} = join( $SPACE, @WUattr ).$SPACE."class:$classes".$SPACE.$readingFnAttributes;
-    return;
+    processCmdQueue($hash);
+	return;
 }
 
 sub parseTT {
     my ( $param, $err, $data ) = @_;
     my $hash = $param->{hash};
+    return unless isActive($hash);
     my $name = $hash->{NAME};
-
-    CommandDeleteReading( undef, "$name e_.*" );
 
     if ($err) {
         return if handleRetryOrFail($hash, $err, "parseTT");
@@ -1060,18 +1234,21 @@ sub parseTT {
     Log3( $name, LOG_RECEIVE, "getTT received $data");
     my $json = safe_decode_json( $hash, $data );
     if (!$json) {
-        return if handleRetryOrFail($hash, "No JSON received for Timetable", "parseTT");
+        return if handleRetryOrFail($hash, "Malformed JSON received for Timetable", "parseTT");
         return;
     }
-    if ( $json->{error} ) {
-        my $errorCode = $json->{error}{code};
-        return if handleRetryOrFail($hash, $json->{error}{message}, "parseTT", $errorCode);
+    return if handle_json_rpc_error($hash, $json, "parseTT");
+    if ( !is_valid_timetable_result($json->{result}) )
+    {
+        return if handleRetryOrFail($hash, "Malformed timetable result", "parseTT");
         return;
     }
 
     # Success - reset retry count
     delete $hash->{helper}{retryCount};
 
+    CommandDeleteReading( undef, "$name e_.*" );
+    readingsBeginUpdate($hash);
     #Log3 ($name, LOG_ERROR, Dumper(${$json->{result}}[0]));
     my @dat = @{ $json->{result} };
 
@@ -1128,10 +1305,13 @@ sub parseTT {
 			$html .= $htmlRow;
 			foreach my $e (@exceptions) {
 				if ( $t->{$e} ) {
-					if ( $exceptionFilter->{$e} && $t->{$e} =~ /$exceptionFilter->{$e}/ ) {
+					if ($exceptionFilter->{$e} && contains_literal($t->{$e}, $exceptionFilter->{$e}) ) {
 						next;
 					}
-					if ($t->{su}[0]{name} && grep(/$t->{su}[0]{name}/,@exSu)) {
+                    my $subjectName;
+                    $subjectName = $t->{su}[0]{name}
+                      if ref($t->{su}) eq 'ARRAY' && ref($t->{su}[0]) eq 'HASH';
+					if (defined $subjectName && grep { $_ eq $subjectName } @exSu) {
 						next;
 					}
 					# Filter exceptions by time if considerTimeOfDay is enabled
@@ -1156,21 +1336,22 @@ sub parseTT {
         foreach my $f (@fields) {
             $htmlRow .= "<td>";
             if ( $t->{$f} ) {
-                if ( any { /^$f$/xsm } @ofields ) {
-                    if ( $t->{$f}[0]{longname} ) {
-                        $htmlRow .= escapeHTML($t->{$f}[0]{longname});
-                        $rv   .= $f.":longname=\"".$t->{$f}[0]{longname}."\"";
+                if ( any { $_ eq $f } @ofields ) {
+                    my $detail = $t->{$f}[0];
+                    if ( ref($detail) eq 'HASH' && $detail->{longname} ) {
+                        $htmlRow .= escapeHTML($detail->{longname});
+                        $rv   .= $f.":longname=\"".$detail->{longname}."\"";
                     }
                     $htmlRow .= "</td><td>";
                     $rv   .= $SPACE;
-                    if ( $t->{$f}[0]{name} ) {
-                        $html .= escapeHTML($t->{$f}[0]{name});
-                        $rv   .= $f.":name=\"".$t->{$f}[0]{name}."\"";
+                    if ( ref($detail) eq 'HASH' && $detail->{name} ) {
+                        $html .= escapeHTML($detail->{name});
+                        $rv   .= $f.":name=\"".$detail->{name}."\"";
                     }
 
                 }
 				## if we have an exception filter (ie 1.HJ) then we also don't want this value in the reading
-                elsif ( !($exceptionFilter->{$f} && $t->{$f} =~ /$exceptionFilter->{$f}/ )) {
+                elsif ( !($exceptionFilter->{$f} && contains_literal($t->{$f}, $exceptionFilter->{$f})) ) {
                     $htmlRow .= escapeHTML($t->{$f});
                     $rv   .= $f."=\"".$t->{$f}."\"";
                 }
@@ -1181,7 +1362,7 @@ sub parseTT {
         $htmlRow .= "</tr>";
 		$html .= $htmlRow;
         if ($exc) {
-            readingsSingleUpdate( $hash, $rn, $rv, 1 );
+            readingsBulkUpdate( $hash, $rn, $rv );
             if ($t->{date} eq $today) {
                 if ($rToday eq $EMPTY) {
                     $rToday .= $rn;    
@@ -1205,16 +1386,18 @@ sub parseTT {
 
     #Log3 $name, LOG_ERROR, $html;
     $hash->{helper}{timetable} = $html;
-    readingsSingleUpdate( $hash, "exceptionToday", join($COMMA,uniq(split($COMMA,$rToday))), 1 );
-    readingsSingleUpdate( $hash, "exceptionTomorrow", join($COMMA,uniq(split($COMMA,$rTomorrow))), 1 );
-    readingsSingleUpdate( $hash, "exceptionCount", $exCnt, 1 );
-    readingsSingleUpdate( $hash, "state", "processing done", 1 );
+    readingsBulkUpdate( $hash, "exceptionToday", join($COMMA,uniq(split($COMMA,$rToday))) );
+    readingsBulkUpdate( $hash, "exceptionTomorrow", join($COMMA,uniq(split($COMMA,$rTomorrow))) );
+    readingsBulkUpdate( $hash, "exceptionCount", $exCnt );
+    readingsBulkUpdate( $hash, "state", "processing done" );
+    readingsEndUpdate($hash, 1);
 	
 	### Export timetable into iCal - file ### Sailor ###
 	exportTT2iCal($hash);
 	
 	# Clear timer running flag to allow next timer execution
 	delete $hash->{helper}{timerRunning};
+    scheduleNextPoll($hash);
 	
     return;
 }
@@ -1304,7 +1487,7 @@ sub getCookies {
     foreach my $cookie ( $header =~ m/set-cookie: ?(.*)/gix ) {
         if ( $cookie =~ /([^,; ]+)=([^,;\s\v]+)[;,\s\v]*([^\v]*)/x ) {
 
-            Log3 $name, LOG_RECEIVE, qq($name: GetCookies parsed Cookie: $1 Wert $2 Rest $3);
+            Log3 $name, LOG_RECEIVE, qq($name: GetCookies parsed cookie name $1);
             my $cname = $1;
             my $value = $2;
             my $rest  = ( $3 ? $3 : $EMPTY );
@@ -1325,6 +1508,7 @@ sub getCookies {
 
 sub processCmdQueue {
     my $hash = shift;
+    return unless isActive($hash);
 
     my $name = $hash->{NAME};
 
@@ -1332,7 +1516,11 @@ sub processCmdQueue {
 
     my $cmd = shift @{ $hash->{helper}{cmdQueue} };
 
-    return if ref($cmd) ne "CODE";
+    if ( ref($cmd) ne "CODE" ) {
+        delete $hash->{helper}{activeCmd};
+        return;
+    }
+    $hash->{helper}{activeCmd} = $cmd;
     my $cv = svref_2object($cmd);
     my $gv = $cv->GV;
     Log3 $name, LOG_RECEIVE, "[$name] Processing Queue: " . $gv->NAME;
@@ -1427,6 +1615,8 @@ sub handleAuthenticationError {
         $hash->{helper}{passwordValid} = 0;
         delete $hash->{helper}{retryCount};
         delete $hash->{helper}{cmdQueue};
+        delete $hash->{helper}{timerRunning};
+        RemoveInternalTimer($hash);
         
         my $finalMessage = "Authentication failed after $currentCount consecutive errors. Password invalidated. Please update: set $name password <new_password>";
         Log3 $name, LOG_ERROR, "[$name] $finalMessage";
@@ -1465,6 +1655,7 @@ sub handleAuthenticationError {
 
 sub handleRetryOrFail {
     my ($hash, $error, $context, $errorCode) = @_;
+    return 0 unless isActive($hash);
     my $name = $hash->{NAME};
     
     # Check for authentication errors first - these should not be retried
@@ -1493,6 +1684,16 @@ sub handleRetryOrFail {
         readingsSingleUpdate($hash, "lastError", "Retry $hash->{helper}{retryCount}/$maxRetries: $error", 1);
         
         # Schedule retry with exponential backoff
+        my %retry_command = (
+            parseLogin      => \&login,
+            parseClass      => \&getClass,
+            parseTT         => \&getTT,
+            parseSchoolYear => \&getSchoolYearAPI,
+        );
+        unshift @{ $hash->{helper}{cmdQueue} }, $retry_command{$context}
+          if $retry_command{$context};
+        delete $hash->{helper}{timerRunning};
+        RemoveInternalTimer($hash);
         my $next = int(gettimeofday()) + $delay;
         InternalTimer($next, 'FHEM::Webuntis::retryProcessing', $hash, 0);
         
@@ -1507,10 +1708,14 @@ sub handleRetryOrFail {
         # Reset retry count and delete queue - processing stops
         delete $hash->{helper}{retryCount};
         delete $hash->{helper}{cmdQueue};
+        delete $hash->{helper}{timerRunning};
         
-        # There is something wrong on our end or the webserver - we retry in two hours
-        my $next = int(gettimeofday()) + 7200;
-        InternalTimer($next, 'FHEM::Webuntis::retryProcessing', $hash, 0);
+        # Start a fresh retrieval after a prolonged delay.
+        RemoveInternalTimer($hash);
+        if ( !IsDisabled($name) && AttrNum( $name, 'interval', 3600 ) >= WU_MINIMUM_INTERVAL ) {
+            my $next = int(gettimeofday()) + 7200;
+            InternalTimer($next, 'FHEM::Webuntis::wuTimer', $hash, 0);
+        }
 
         return 0; # Not handled - queue deleted, processing stops
     }
@@ -1518,6 +1723,8 @@ sub handleRetryOrFail {
 
 sub retryProcessing {
     my $hash = shift;
+    return unless isActive($hash);
+    return unless $hash->{helper}{cmdQueue} && @{ $hash->{helper}{cmdQueue} };
     # Continue processing the queue from where we left off after retry delay
     processCmdQueue($hash);
     return;
@@ -1534,9 +1741,13 @@ sub safe_decode_json {
         1;
     } or do {
         my $error = $@ || 'Unknown failure';
-        Log3 $name, LOG_ERROR, "[$name] - Received invalid JSON: $error" . Dumper($data);
+        Log3 $name, LOG_ERROR, "[$name] - Received invalid JSON: $error";
 
     };
+    if ( defined $json && ref($json) ne 'HASH' ) {
+        Log3 $name, LOG_ERROR, "[$name] - JSON response is not an object";
+        return;
+    }
     return $json;
 }
 
@@ -1588,15 +1799,50 @@ sub Rename {
     my $hash = $defs{$new};
     my $name = $hash->{NAME};
 
-    my $oldhash = $defs{$old};
-    Log3 $name, 1, Dumper($oldhash) ;
-
     my ( $passResp, $passErr ) = $hash->{helper}->{passObj}->setRename( $new, $old );
 
     if ( defined($passErr) ) {
         Log3 $name, LOG_WARNING, "[$name] error while saving the password after rename - $passErr. Please set the password again." ;
     }
     return;
+}
+
+sub ical_escape_text {
+    my ($text) = @_;
+    $text = '' unless defined $text;
+    $text =~ s/\\/\\\\/g;
+    $text =~ s/\r\n|\r|\n/\\n/g;
+    $text =~ s/([;,])/\\$1/g;
+    return $text;
+}
+
+sub ical_fold_line {
+    my ($line) = @_;
+    my ($folded, $line_bytes) = ('', 0);
+    for my $char ( split //, $line ) {
+        my $bytes = length Encode::encode('UTF-8', $char);
+        if ( $line_bytes + $bytes > 75 ) {
+            $folded .= "\r\n ";
+            $line_bytes = 1;
+        }
+        $folded .= $char;
+        $line_bytes += $bytes;
+    }
+    return $folded . "\r\n";
+}
+
+sub ical_line {
+    my ($property, $value) = @_;
+    return ical_fold_line($property . ':' . ical_escape_text($value));
+}
+
+sub ical_item_text {
+    my ($item, $field) = @_;
+    my $value;
+    $value = $item->{$field}[0]{longname}
+      if ref($item->{$field}) eq 'ARRAY' && ref($item->{$field}[0]) eq 'HASH';
+    return 'NN ' unless defined $value && length $value;
+    return Encode::decode('iso-8859-1', $value);
 }
 
 ### To export entire time table into iCal from @Sailor
@@ -1618,7 +1864,7 @@ sub exportTT2iCal {
 		my $timestamp = $now->strftime('%Y%m%dT%H%M%S');
 
 		####START##### Transform json-Timetable in ical Timetable #####START####
-		$iCalFileContent = "BEGIN:VCALENDAR\nVERSION:2.0\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\nMETHOD:PUBLISH\n\n";
+		$iCalFileContent = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\n-//fhem Home Automation//NONSGML 69_Webuntis//EN\r\nMETHOD:PUBLISH\r\n\r\n";
 		foreach my $TimeTableArray ( @jsonTimeTable ) {
 
 			### Log Entry for debugging purposes
@@ -1628,28 +1874,28 @@ sub exportTT2iCal {
 			foreach my $TTHashcontent (@$TimeTableArray) {
 				Log3 $name, 5, $name. " : Webuntis_exportTT2iCal - Progressing TT item      : #" . $TTHashcontent->{id};
 
-				my $TTClass    = Encode::decode( 'iso-8859-1', $TTHashcontent->{kl}[0]{longname}) || 'NN ';
-				my $TTSubject  = Encode::decode( 'iso-8859-1', $TTHashcontent->{su}[0]{longname}) || 'NN ';
-				my $TTTeacher  = Encode::decode( 'iso-8859-1', $TTHashcontent->{te}[0]{longname}) || 'NN ';
-				my $TTLocation = Encode::decode( 'iso-8859-1', $TTHashcontent->{ro}[0]{longname}) || 'NN ';
+				my $TTClass    = ical_item_text($TTHashcontent, 'kl');
+				my $TTSubject  = ical_item_text($TTHashcontent, 'su');
+				my $TTTeacher  = ical_item_text($TTHashcontent, 'te');
+				my $TTLocation = ical_item_text($TTHashcontent, 'ro');
 	
 				my $CalSubject = $TTClass . " " . $TTSubject . " " . $TTTeacher;
-				my $CalInfo    = "Klasse: " . $TTClass . "\\n" . "Unterricht: " . $TTSubject . "\\n" . "Ort: " . $TTLocation . "\\n" . "Lehrkraft: " . $TTTeacher;
+				my $CalInfo    = "Klasse: " . $TTClass . "\n" . "Unterricht: " . $TTSubject . "\n" . "Ort: " . $TTLocation . "\n" . "Lehrkraft: " . $TTTeacher;
 
-				$iCalFileContent .= "BEGIN:VEVENT\n";
-				$iCalFileContent .= "CLASS:PUBLIC\n";
-				$iCalFileContent .= "STATUS:CONFIRMED\n";
-				$iCalFileContent .= "TRANSP:TRANSPARENT\n";
-				$iCalFileContent .= "CATEGORIES:EDUCATION\n";
-				$iCalFileContent .= "URL:"                        . AttrVal($name, "server", ""  ) . "\n";
-				$iCalFileContent .= "UID:"                        . $TTHashcontent->{id} . "\n";
-				$iCalFileContent .= "LOCATION:"                   . $TTLocation . "\n";
-				$iCalFileContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{startTime}) . "00\n";
-				$iCalFileContent .= "DTEND;TZID=Europe/Berlin:"   . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{endTime})   . "00\n";
-				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . $timestamp ."\n";
-				$iCalFileContent .= "SUMMARY:"                    . $CalSubject . "\n";
-				$iCalFileContent .= "DESCRIPTION:"                . $CalInfo . "\n";
-				$iCalFileContent .= "END:VEVENT\n\n";
+				$iCalFileContent .= "BEGIN:VEVENT\r\n";
+				$iCalFileContent .= "CLASS:PUBLIC\r\n";
+				$iCalFileContent .= "STATUS:CONFIRMED\r\n";
+				$iCalFileContent .= "TRANSP:TRANSPARENT\r\n";
+				$iCalFileContent .= "CATEGORIES:EDUCATION\r\n";
+				$iCalFileContent .= ical_line("URL", AttrVal($name, "server", ""));
+				$iCalFileContent .= ical_line("UID", $TTHashcontent->{id});
+				$iCalFileContent .= ical_line("LOCATION", $TTLocation);
+				$iCalFileContent .= "DTSTART;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{startTime}) . "00\r\n";
+				$iCalFileContent .= "DTEND;TZID=Europe/Berlin:" . $TTHashcontent->{date} . "T" . sprintf('%04d',$TTHashcontent->{endTime}) . "00\r\n";
+				$iCalFileContent .= "DTSTAMP;TZID=Europe/Berlin:" . $timestamp ."\r\n";
+				$iCalFileContent .= ical_line("SUMMARY", $CalSubject);
+				$iCalFileContent .= ical_line("DESCRIPTION", $CalInfo);
+				$iCalFileContent .= "END:VEVENT\r\n\r\n";
 				Log3 $name, 5, $name. " : Webuntis_exportTT2iCal_____________________________________________________";
 			}
 		}
@@ -1864,13 +2110,13 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <b>Attributes</b>
 <ul>
 <b>Required Attributes:</b>
-<li><a name='server'></a><code>server</code> - Webuntis server URL (e.g., https://server.webuntis.com)</li>
+<li><a name='server'></a><code>server</code> - HTTPS Webuntis server URL (e.g., https://server.webuntis.com)</li>
 <li><a name='school'></a><code>school</code> - your school identifier</li>
 <li><a name='user'></a><code>user</code> - your Webuntis username</li>
 <li><a name='class'></a><code>class</code> - the class for which timetable data should be retrieved</li>
 <br>
 <b>Optional Attributes:</b>
-<li><a name='interval'></a><code>interval</code> - polling interval in seconds, minimum 300 (defaults to 3600)</li>
+<li><a name='interval'></a><code>interval</code> - polling interval in seconds, 0 disables polling or use an integer of at least 300 (defaults to 3600)</li>
 <li><a name='DaysTimetable'></a><code>DaysTimetable</code> - number of days to retrieve timetable data for (default: 7)</li>
 <li><a name='startDayTimeTable'></a><code>startDayTimeTable</code> - start day for timetable retrieval (Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday)</li>
 <li><a name='disable'></a><code>disable</code> - disable the module (0/1)</li>
@@ -1895,7 +2141,7 @@ After defining, set your password: <code>set &lt;name&gt; password &lt;password&
 <b>Retry Configuration:</b>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximum retry attempts (0-10, default: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initial retry delay in seconds (5-300, default: 30)</li>
-<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximum consecutive authentication errors before password invalidation (1-168, default: 24). When reached, polling stops and password must be updated.</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - consecutive authentication failures before password invalidation (1-168, default: 24; this is a failure count, not hours). When reached, polling stops until the password is updated.</li>
 </ul>
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
@@ -1961,7 +2207,8 @@ set myWebuntis password mysecretpassword
 <li>Passwords are stored securely using FHEM's password store mechanism</li>
 <li>Passwords are never logged (even at debug level)</li>
 <li>The iCal export validates paths to prevent directory traversal attacks</li>
-<li>Use HTTPS URLs for the server attribute</li>
+<li>The server attribute accepts HTTPS URLs only</li>
+<li>iCal export performs synchronous file writes; use a reliable, local writable filesystem</li>
 </ul>
 </ul>
 </div>
@@ -2032,13 +2279,13 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <b>Attribute</b>
 <ul>
 <b>Erforderliche Attribute:</b>
-<li><a name='server'></a><code>server</code> - Webuntis Server-URL (z.B. https://server.webuntis.com)</li>
+<li><a name='server'></a><code>server</code> - HTTPS-Webuntis-Server-URL (z.B. https://server.webuntis.com)</li>
 <li><a name='school'></a><code>school</code> - deine Schulkennung</li>
 <li><a name='user'></a><code>user</code> - dein Webuntis Benutzername</li>
 <li><a name='class'></a><code>class</code> - die Klasse, für die Stundenplan-Daten abgerufen werden sollen</li>
 <br>
 <b>Optionale Attribute:</b>
-<li><a name='interval'></a><code>interval</code> - Polling-Intervall in Sekunden, mindestens 300 (Standard: 3600)</li>
+<li><a name='interval'></a><code>interval</code> - Polling-Intervall in Sekunden, 0 deaktiviert Polling oder eine ganze Zahl ab 300 (Standard: 3600)</li>
 <li><a name='DaysTimetable'></a><code>DaysTimetable</code> - Anzahl der Tage für Stundenplan-Daten (Standard: 7)</li>
 <li><a name='startDayTimeTable'></a><code>startDayTimeTable</code> - Start-Tag für Stundenplan-Abruf (Today,Monday,Tuesday,Wednesday,Thursday,Friday,Saturday,Sunday)</li>
 <li><a name='disable'></a><code>disable</code> - deaktiviere das Modul (0/1)</li>
@@ -2063,7 +2310,7 @@ Nach dem Definieren setze dein Passwort: <code>set &lt;name&gt; password &lt;pas
 <b>Retry-Konfiguration:</b>
 <li><a name='maxRetries'></a><code>maxRetries</code> - maximale Wiederholungsversuche (0-10, Standard: 3)</li>
 <li><a name='retryDelay'></a><code>retryDelay</code> - initiale Retry-Verzögerung in Sekunden (5-300, Standard: 30)</li>
-<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - maximale aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24). Bei Erreichen wird Polling gestoppt und Passwort muss aktualisiert werden.</li>
+<li><a name='authErrorThreshold'></a><code>authErrorThreshold</code> - aufeinanderfolgende Authentifizierungsfehler vor Passwort-Invalidierung (1-168, Standard: 24; dies ist eine Fehleranzahl, keine Stunden). Bei Erreichen wird Polling bis zur Passwortaktualisierung gestoppt.</li>
 </ul>
 <a name='WebuntisReadings'></a>
 <b>Readings</b>
@@ -2129,7 +2376,8 @@ set myWebuntis password mysecretpassword
 <li>Passwörter werden sicher mit FHEMs Passwort-Speichermechanismus gespeichert</li>
 <li>Passwörter werden niemals geloggt (auch nicht im Debug-Modus)</li>
 <li>Der iCal-Export validiert Pfade, um Directory-Traversal-Angriffe zu verhindern</li>
-<li>Verwende HTTPS-URLs für das server-Attribut</li>
+<li>Das server-Attribut akzeptiert ausschließlich HTTPS-URLs</li>
+<li>Der iCal-Export schreibt Dateien synchron; verwende ein zuverlässiges lokales beschreibbares Dateisystem</li>
 </ul>
 </ul>
 </div>
