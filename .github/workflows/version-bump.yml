@@ -48,15 +48,43 @@ jobs:
           echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           echo "current_version=$CURRENT" >> "$GITHUB_OUTPUT"
 
-      - name: Update controls_webuntis.txt
+      - name: Update changelog and controls_webuntis.txt
         if: steps.bump.outputs.new_version != steps.bump.outputs.current_version
         run: |
           set -euo pipefail
           FILE="FHEM/69_Webuntis.pm"
+          CHANGED="CHANGED"
           CONTROLS="controls_webuntis.txt"
           TIMESTAMP=$(date -u +%Y-%m-%d_%H:%M:%S)
+          TODAY=$(date -u +%Y-%m-%d)
           SIZE=$(stat -c%s "$FILE")
           echo "UPD $TIMESTAMP $SIZE $FILE" > "$CONTROLS"
+
+          PREVIOUS_BUMP=$(git log -1 --format=%H --grep='chore: bump version to' || true)
+          if [ -n "$PREVIOUS_BUMP" ]; then
+            RANGE="${PREVIOUS_BUMP}..HEAD"
+          else
+            RANGE="HEAD"
+          fi
+          SUMMARY=$(git log --no-merges --format=%s "$RANGE" \
+            | grep -vE '^(chore: bump version to|Initial plan)$' \
+            | head -n 3 || true)
+          if [ -z "$SUMMARY" ]; then
+            SUMMARY=$(git log -1 --format=%b HEAD | sed '/^[[:space:]]*$/d' | head -n 1 || true)
+          fi
+          if [ -z "$SUMMARY" ]; then
+            SUMMARY=$(git log -1 --format=%s HEAD)
+          fi
+
+          {
+            printf '%s %s\n' "$TODAY" "${{ steps.bump.outputs.new_version }}"
+            while IFS= read -r line; do
+              [ -n "$line" ] && printf -- '- %s\n' "$line"
+            done <<< "$SUMMARY"
+            printf '\n'
+            cat "$CHANGED"
+          } > "$CHANGED.tmp"
+          mv "$CHANGED.tmp" "$CHANGED"
 
       - name: Commit and push version bump
         if: steps.bump.outputs.new_version != steps.bump.outputs.current_version
@@ -64,6 +92,6 @@ jobs:
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add FHEM/69_Webuntis.pm controls_webuntis.txt
+          git add FHEM/69_Webuntis.pm CHANGED controls_webuntis.txt
           git commit -m "chore: bump version to ${{ steps.bump.outputs.new_version }} [skip ci]"
           git push
