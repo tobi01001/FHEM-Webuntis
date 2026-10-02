@@ -1019,6 +1019,7 @@ sub getTT {
             readingsSingleUpdate($hash, "state", "Error: Invalid schoolYearStart", 1);
             readingsSingleUpdate($hash, "lastError", "Invalid schoolYearStart; use YYYY-MM-DD", 1);
             delete $hash->{helper}{timerRunning};
+            scheduleNextPoll($hash);
             return "Invalid schoolYearStart";
         }
     }
@@ -1028,6 +1029,7 @@ sub getTT {
             readingsSingleUpdate($hash, "state", "Error: Invalid schoolYearEnd", 1);
             readingsSingleUpdate($hash, "lastError", "Invalid schoolYearEnd; use YYYY-MM-DD", 1);
             delete $hash->{helper}{timerRunning};
+            scheduleNextPoll($hash);
             return "Invalid schoolYearEnd";
         }
     }
@@ -1044,6 +1046,7 @@ sub getTT {
         readingsSingleUpdate( $hash, "lastError", "Start date ($startdate) is after end date ($enddate)", 1 );
         
         delete $hash->{helper}{timerRunning};
+        scheduleNextPoll($hash);
         return "Start date after end date";
     }
 
