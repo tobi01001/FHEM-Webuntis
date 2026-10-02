@@ -75,8 +75,6 @@ jobs:
           CONTROLS="controls_webuntis.txt"
           TIMESTAMP=$(date -u +%Y-%m-%d_%H:%M:%S)
           TODAY=$(date -u +%Y-%m-%d)
-          SIZE=$(stat -c%s "$FILE")
-          echo "UPD $TIMESTAMP $SIZE $FILE" > "$CONTROLS"
 
           python3 - <<'PY'
           import os
@@ -99,6 +97,9 @@ jobs:
           else:
               raise SystemExit("Could not find the module changelog header")
           PY
+
+          SIZE=$(stat -c%s "$FILE")
+          echo "UPD $TIMESTAMP $SIZE $FILE" > "$CONTROLS"
 
           PREVIOUS_BUMP=$(git log -1 --format=%H --grep='chore: bump version to' || true)
           if [ -n "$PREVIOUS_BUMP" ]; then
