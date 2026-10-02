@@ -1,3 +1,6 @@
+2026-10-02 0.3.11
+- Harden Webuntis lifecycle, retries, and response handling
+
 2025-11-28 0.3.09
 - Restore full documentation with Requirements, Installation, Examples, Troubleshooting, and Security sections
 - Add back important documentation details per code review
